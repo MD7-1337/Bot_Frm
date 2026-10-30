@@ -1,6 +1,8 @@
 # Android Automation Studio
 
-A Windows desktop IDE for Android visual automation, being developed in the phases defined in the supplied specification. **The current increment implements the foundational SikuliX-style Python engine on top of the existing device/video/capture workbench. It is not a production release and has not passed real-phone or Windows acceptance.**
+A Windows-targeted desktop IDE for Android visual automation. **The current alpha adds staged connection diagnostics and a workspace redesign to the existing Python/Monaco, ADB/scrcpy and isolated scripting engine. It is not a production release and has not passed real-phone or Windows acceptance.**
+
+Start here: [local testing without sudo, phone diagnostics and first workflows](docs/LOCAL_TESTING.md). The [alpha stabilization report](docs/ALPHA_STABILIZATION.md) separates confirmed code repairs from the user's PC-level USB problem; the [control inventory](docs/CONTROL_INVENTORY.md) records what is verified and what requires hardware.
 
 Start with the [engineering blueprint](docs/BLUEPRINT.md), [technology decisions](docs/DECISIONS.md), [milestones](docs/PHASES.md), and [actual validation results](docs/VALIDATION.md).
 
@@ -14,10 +16,12 @@ The original [product specification](docs/PRODUCT_SPECIFICATION.md) is retained 
 
 ## What works in this increment
 
-- PySide6 dockable workbench with layout restoration, script open/atomic save, and unsaved-change prompts.
+- PySide6 workspace shell with collapsible navigation, responsive persistent splitters, script tabs/project explorer, atomic save and unsaved-document prompts.
+- Consistent light/dark Qt and Monaco appearance, keyboard navigation/command search, settings and an always-present emergency stop.
 - Visible Device Manager, Screenshot & Visual Tools and Action Recorder panels, with keyboard navigation, saved names/groups, endpoint-scoped Wi-Fi connect/pair/disconnect, and a browsable project image library.
 - Locally bundled Monaco in Qt WebEngine with a restricted QWebChannel bridge, generated API completion/signatures/docs, actual image hover thumbnails, missing-image warnings and execution-line highlighting.
 - Serial-specific ADB discovery, connection generations, PNG capture, measured resolution/optional rotation, tap/double-tap/hold/swipe/key controls, and explicit offline/unauthorized/disconnected/unknown states.
+- Visible staged connection diagnostics, unreadable permission-denied USB rows, saved ADB path selection, copied redacted reports and actionable school-PC/driver guidance. Diagnostics never bypass OS permissions or kill a shared ADB server.
 - Embedded **scrcpy 3.1 H.264 video** transport, actual PyAV decoding, and independent latest-frame Qt previews with adjustable encoder FPS/bitrate/size. Protocol/codec/local-socket fixtures pass; actual Android streaming remains unverified.
 - Explicit **ADB screenshot fallback**, polled at a one-second interval when idle. Actual capture latency can be longer. The fallback is labeled separately from video.
 - Frozen full-resolution screenshot selection, crop/atomic PNG save, Android coordinates, valid image-based Python command insertion, and asynchronous fresh-frame OpenCV match tests.
@@ -25,11 +29,12 @@ The original [product specification](docs/PRODUCT_SPECIFICATION.md) is retained 
 - Independent spawned workers, normal Python/imports/main guards, bounded JSON IPC, per-device leases/generations, trust approval, cancellable waits, pause/resume/stop, tracebacks and an asynchronous Qt service.
 - Shared-source and per-phone file assignments with independent contexts, run status and output/error views.
 - Tested OpenCV template matching with regions, full-frame coordinates, scores, explicit `Pattern.atScales(...)` and cross-scale overlap suppression.
-- A serial-bound recorder of acknowledged studio controls, editable/reorderable Python timeline and normal trusted-worker replay. It does not record touches made outside the studio.
+- A serial-bound recorder of acknowledged studio controls, editable/reorderable Python timeline, JSON session save/open and normal trusted-worker replay. It does not record touches made outside the studio.
+- Fresh RGB `getPixel` / `findColor` APIs with regions, explicit tolerance and serial-local contexts.
 
 The workbench always uses the real ADB backend. Mock devices are confined to explicitly identified tests/examples. Missing dependencies/devices produce actionable errors.
 
-**Not implemented yet:** general Python language service, full project backup/import/export management, OCR/UI-element APIs, advanced recorder persistence/image conversion, breakpoint debugger, scheduler, SQLite business persistence, updater, installer or portable Windows build. See the milestone gates; menu pages are not used to imply those features exist.
+**Not implemented yet:** general Python language service, full project backup/import/export management, OCR/UI-element APIs, advanced recorder image conversion/curved multitouch, breakpoint debugger, scheduler, SQLite business persistence, updater, installer or portable Windows build. Task Manager explicitly describes planned scheduling and links to real script assignments.
 
 ## Development setup
 

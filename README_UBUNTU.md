@@ -1,18 +1,20 @@
 # Android Automation Studio 0.2.0 — Ubuntu 22.04 x86_64
 
-To test the unmerged Device Manager/Visual Tools changes, clone with
-`--branch feat/device-manager-visual-tools` instead of `--branch main` below.
-See [the feature guide](docs/DEVICE_MANAGER_VISUAL_TOOLS.md) for the new controls.
+For the latest unmerged alpha fixes, clone with
+`--branch fix/alpha-device-connect-and-ux-overhaul` instead of `--branch main` below.
+If your school computer has no sudo access, start with
+[LOCAL_TESTING.md](docs/LOCAL_TESTING.md). It requires no privileged commands;
+host USB/driver/Qt library restrictions still need your administrator where applicable.
 
 This project contains the current application, custom Monaco integration,
 documentation, examples, tests, `pyproject.toml`, `uv.lock`, and an exported,
-hashed `requirements.txt`. It excludes `.git`, `.venv`, caches, egg-info/build
-outputs, downloaded `editor_web/vendor` assets and `.tools` binaries. The
+hashed `requirements.txt`. Generated `.venv`, caches, egg-info/build outputs,
+downloaded `editor_web/vendor` assets and `.tools` binaries are not tracked. The
 commands below restore those pinned dependencies without changing application
 functionality. Internet access is needed for initial setup; core use is offline.
 
-The existing complete suite passed 496 tests on the Linux cloud machine. That
-machine was not Ubuntu 22.04. These are Ubuntu installation instructions, not a
+Current test results are in [ALPHA_STABILIZATION.md](docs/ALPHA_STABILIZATION.md).
+The cloud machine was not Ubuntu 22.04. These are Ubuntu installation instructions, not a
 claim of an Ubuntu or physical-phone acceptance test. The binary ADB dependency's
 glibc baseline was inspected and is compatible with Ubuntu 22.04's glibc baseline;
 actual USB/device behavior still needs your testing.

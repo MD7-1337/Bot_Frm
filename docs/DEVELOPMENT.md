@@ -1,5 +1,13 @@
 # Development and release runbook
 
+Current alpha: [ALPHA_STABILIZATION.md](ALPHA_STABILIZATION.md),
+[CONTROL_INVENTORY.md](CONTROL_INVENTORY.md), and [LOCAL_TESTING.md](LOCAL_TESTING.md).
+Native Qt workspace/palette controls reuse the existing service boundaries.
+`STUDIO_CONFIG_DIR` selects an optional user-writable INI configuration directory
+and isolates GUI tests on Linux and Windows; default user settings remain supported.
+CI now includes Ubuntu 22.04 and Windows source/GUI jobs. A workflow file or Linux
+result is not an observed Windows pass, USB/driver pass, or installer acceptance.
+
 The current scripting contract and test report are in
 [SCRIPTING_API.md](SCRIPTING_API.md) and [SCRIPTING_ENGINE.md](SCRIPTING_ENGINE.md).
 `app/automation/api` owns public targets/errors/commands and context-local

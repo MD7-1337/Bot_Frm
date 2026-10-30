@@ -13,12 +13,13 @@ import numpy as np
 from app.automation.api import errors
 from app.automation.api.models import Location, Match, Offset, Pattern, Region, Screen
 from app.vision.matching import find_scaled
+from app.vision.color import pixel, find_color
 
 API_METHOD_NAMES = (
     "click", "doubleClick", "longPress", "tap", "swipe", "drag", "scroll",
     "find", "findAll", "exists", "waitImage", "waitVanish", "sleep", "wait",
     "back", "home", "launchApp", "stopApp", "typeText", "capture",
-    "getResolution", "getDevice",
+    "getResolution", "getDevice", "getPixel", "findColor",
 )
 Target = Location | Match | Pattern | str | tuple[int, int]
 
@@ -117,6 +118,26 @@ class Device:
         """Return this execution's assigned serial string (compatible with Phase 0)."""
         self._check()
         return self.serial
+
+    def getPixel(self, x: int, y: int) -> tuple[int, int, int]:
+        """Fresh RGB pixel; original Android coordinates. No input is sent."""
+        screen = self.capture()
+        self._coordinates(x, y, screen.resolution)
+        return pixel(screen.to_numpy(), x, y)
+
+    def findColor(self, color: tuple[int, int, int], tolerance: int = 0, *, region: Region | None = None, limit: int = 100) -> list[Location]:
+        """Fresh screenshot; row-major pixel locations, inclusive per-channel RGB tolerance 0–255.
+
+        Color channels are integers 0–255, limit is 1–10000, and search bounds
+        use original Android pixels. Results are pixels, not clustered objects.
+        A legitimate absence returns []; invalid values raise ValueError.
+        """
+        screen = self.capture()
+        self._region(region, screen)
+        self._check()
+        found = find_color(screen.to_numpy(), color, tolerance, region, limit)
+        self._check()
+        return found
 
     @staticmethod
     def _coordinates(x: int, y: int, size: tuple[int, int]) -> Location:

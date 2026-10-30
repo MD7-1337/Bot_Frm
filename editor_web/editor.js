@@ -168,7 +168,12 @@ new QWebChannel(qt.webChannelTransport, function (channel) {
                 setText: source => editor.setValue(source), getText: () => editor.getValue(),
                 insert: source => editor.executeEdits("automation-tool", [{range: editor.getSelection(), text: source, forceMoveMarkers: true}]),
                 completionItems, signatureAt, hoverAt, refreshImages, setExecutionLine,
-                setRunStatus: status => { window.studio.runStatus = status; }
+                setRunStatus: status => { window.studio.runStatus = status; },
+                setAppearance: (theme, fontSize) => {
+                    monaco.editor.setTheme(theme === "light" ? "vs" : "vs-dark");
+                    editor.updateOptions({fontSize});
+                    document.body.style.background = theme === "light" ? "#ffffff" : "#1e1e1e";
+                }
             };
             setInterval(refreshImages, 3000);
             bridge.editorReady();

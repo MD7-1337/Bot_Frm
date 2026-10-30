@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import ast
+import json
 from dataclasses import dataclass
 import math
 from uuid import uuid4
@@ -109,3 +110,37 @@ class ActionRecorder:
         source = header + "\n".join(lines) + "\n"
         compile(source, "<recording>", "exec")
         return source
+
+    def session_json(self) -> str:
+        """Portable user-chosen data file; no automatic replay or device reconnection."""
+        if self.state != "stopped" or not self.serial:
+            raise ValueError("Stop a recording before saving its session")
+        self.source()
+        payload = json.dumps({"schema_version": 1, "serial": self.serial,
+                              "generation": self.generation, "actions": self.actions}, ensure_ascii=False, indent=2)
+        if len(payload.encode("utf-8")) > 1_000_000:
+            raise ValueError("Recorder session exceeds 1 MB; split the timeline into smaller sessions")
+        return payload
+
+    def load_session(self, payload: str):
+        if self.state != "stopped":
+            raise ValueError("Stop recording before opening a session")
+        if not isinstance(payload, str) or len(payload.encode("utf-8")) > 1_000_000:
+            raise ValueError("Recorder sessions must be smaller than 1 MB")
+        try:
+            data = json.loads(payload)
+            if not isinstance(data, dict) or type(data.get("schema_version")) is not int or data["schema_version"] != 1:
+                raise ValueError("Unsupported recorder session version")
+            serial = validate_serial(data["serial"])
+            generation = data["generation"]
+            if type(generation) is not int or generation < 1:
+                raise ValueError("Invalid recorded connection generation")
+            actions = data["actions"]
+            if not isinstance(actions, list) or len(actions) > self.limit:
+                raise ValueError("Recorder session exceeds the timeline limit")
+            validated = [self.validate_action(action) for action in actions]
+        except (KeyError, TypeError, json.JSONDecodeError, RecursionError) as error:
+            raise ValueError("Invalid recorder session data") from error
+        # Replace only after all validation; loading data never executes a call.
+        self.stop("Loaded session; choose a phone and verify geometry before trusted replay")
+        self.serial, self.generation, self.actions = serial, generation, validated

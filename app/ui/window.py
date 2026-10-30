@@ -6,16 +6,17 @@ from pathlib import Path
 import threading
 import time
 
-from PySide6.QtCore import QObject, QRunnable, QSettings, QSignalBlocker, QThreadPool, QTimer, Qt, Signal, Slot
+from PySide6.QtCore import QObject, QRunnable, QSignalBlocker, QThreadPool, QTimer, Qt, Signal, Slot
 from PySide6.QtGui import QAction, QCloseEvent, QImage, QKeySequence
 from PySide6.QtWidgets import (QAbstractItemView, QDockWidget, QFileDialog, QLabel, QListWidget, QListWidgetItem,
-                              QInputDialog, QLineEdit, QMainWindow, QMessageBox, QPlainTextEdit, QScrollArea, QToolBar)
+                              QApplication, QDialog, QInputDialog, QLineEdit, QMainWindow, QMessageBox, QPlainTextEdit, QToolBar, QVBoxLayout, QWidget)
 
 from app.automation.qt_service import RuntimeService
 from app.automation.recording import ActionRecorder
 from app.devices.adb import AdbClient, ScreenInfo, validate_endpoint
 from app.devices.paths import adb_executable
 from app.devices.registry import DeviceRegistry
+from app.devices.diagnostics import ConnectionDiagnostics, SOLUTIONS
 from app.editor.widget import EditorWidget
 from app.projects.library import discover_project
 from app.streaming.capture import CaptureService
@@ -27,6 +28,10 @@ from app.ui.preview import PhonePreview
 from app.ui.device_manager import DeviceManagerPanel
 from app.ui.recorder_panel import RecorderPanel
 from app.ui.visual_tools import VisualToolsPanel, load_asset, scan_assets
+from app.ui.design import apply_theme, icon
+from app.ui.shell import WorkspaceShell
+from app.settings import create_store, integer, theme_name
+from app.host_metrics import HostMetrics
 
 
 class JobSignals(QObject):
@@ -47,24 +52,28 @@ class Job(QRunnable):
 
 
 class StudioWindow(QMainWindow):
-    """Device/video/capture workbench; unrelated advanced phases remain unavailable."""
+    """Workspace controller; transport, decoding and trusted scripts run outside Qt callbacks."""
+    diagnostic_progress = Signal(object)
 
     def __init__(self, *, discover=True):
         super().__init__()
         self.setWindowTitle("Android Automation Studio · Script Studio")
         self.resize(1380, 880)
-        self.settings = QSettings("AndroidAutomationStudio", "Phase0")
-        self.adb = AdbClient(adb_executable())
+        self.settings = create_store()
+        apply_theme(QApplication.instance(), theme_name(self.settings))
+        self.adb = AdbClient(adb_executable(self.settings.value("adb_path", "")))
         self.capture = CaptureService(self.adb)
         self.registry = DeviceRegistry()
         self.streams = StreamManager(self.adb)
+        if configured_server := os.environ.get("STUDIO_SCRCPY_SERVER") or self.settings.value("scrcpy_server_path", ""):
+            self.streams.server_path = Path(configured_server).expanduser()
         self._connection_tokens: dict[str, threading.Event] = {}
         self._observed_generations: dict[str, tuple[int, str]] = {}
         self._preview_modes: dict[str, str] = {}
         self._stream_sequences: dict[str, int] = {}
         self._stream_states: dict[str, str] = {}
         self._capture_dialogs: set[CaptureDialog] = set()
-        self.runtime = RuntimeService(max_workers=4, parent=self)
+        self.runtime = RuntimeService(max_workers=integer(self.settings, "worker_limit", 4, 1, 8), parent=self)
         self.run_states = []
         self.pending_runs: dict[str, str] = {}
         self.pending_run_ids: dict[str, str] = {}
@@ -83,7 +92,14 @@ class StudioWindow(QMainWindow):
         self._project_explicit = False
         self.assignments: dict[str, Path] = {}
         self._screen_info = {}
+        self._android_versions = {}
         self._network_pending = False
+        self._connection_confirmation = None
+        self._connection_problem = None
+        self._diagnostic_busy = False
+        self._diagnostic_serial = None
+        self._diagnostic_cancel = threading.Event()
+        self._discovery_message = None
         self._library_request = 0
         self._thumbnail_request = 0
         self.recorder = ActionRecorder()
@@ -93,7 +109,6 @@ class StudioWindow(QMainWindow):
         self._run_lines: dict[str, tuple[str, int]] = {}
         self.saved_source = ""
         self.editor = EditorWidget()
-        self.setCentralWidget(self.editor)
         self.project_label = QLabel(f"Project: {self.project_root}")
         self.project_label.setToolTip("Images resolve from this project's images directory and contained script paths.")
         self.statusBar().addPermanentWidget(self.project_label)
@@ -114,13 +129,17 @@ class StudioWindow(QMainWindow):
         self.runtime.failure.connect(self.log)
         self.device_manager = DeviceManagerPanel(self.devices, self.settings)
         self.device_manager.refresh_requested.connect(self.refresh_devices)
-        self.device_manager.preview_requested.connect(lambda: self.show_workspace("phone"))
+        self.device_manager.preview_requested.connect(self.open_preview)
         self.device_manager.capture_requested.connect(self.capture_region)
         self.device_manager.run_requested.connect(self.run_selected_scripts)
         self.device_manager.connect_requested.connect(lambda endpoint: self._network_action("connect", endpoint))
         self.device_manager.pair_requested.connect(self.pair_device)
         self.device_manager.disconnect_requested.connect(self.disconnect_device)
-        self._dock("Device Manager", "devices", self._scroll_panel(self.device_manager), Qt.DockWidgetArea.LeftDockWidgetArea)
+        self.device_manager.reconnect_requested.connect(self.reconnect_device)
+        self.device_manager.diagnose_requested.connect(self.diagnose_connection)
+        self.device_manager.cancel_diagnostics_requested.connect(lambda: self._diagnostic_cancel.set())
+        self.diagnostic_progress.connect(self.device_manager.diagnostic_step)
+        self._dock("Device Manager", "devices", self.device_manager, Qt.DockWidgetArea.LeftDockWidgetArea)
         self.visual_tools = VisualToolsPanel()
         self.visual_tools.refresh_requested.connect(self.refresh_assets)
         self.visual_tools.capture_requested.connect(self.capture_region)
@@ -129,14 +148,15 @@ class StudioWindow(QMainWindow):
         self.visual_tools.asset_selected.connect(self.preview_asset)
         self.visual_tools.insert_requested.connect(self.insert_visual_command)
         self.visual_tools.test_requested.connect(self.test_asset)
-        self._dock("Screenshot & Visual Tools", "visual", self._scroll_panel(self.visual_tools), Qt.DockWidgetArea.LeftDockWidgetArea)
-        self.tabifyDockWidget(self.docks["devices"], self.docks["visual"])
-        self.docks["devices"].raise_()
+        self._dock("Screenshot & Visual Tools", "visual", self.visual_tools, Qt.DockWidgetArea.LeftDockWidgetArea)
         self.live_panel = LivePanel(self.preview)
         self.live_panel.start_requested.connect(self.start_live)
         self.live_panel.start_all_requested.connect(self.start_all_live)
         self.live_panel.stop_requested.connect(self.stop_live)
         self.live_panel.fallback_requested.connect(self.screenshot_fallback)
+        self.live_panel.home_requested.connect(lambda: self._key("HOME"))
+        self.live_panel.back_requested.connect(lambda: self._key("BACK"))
+        self.live_panel.capture_requested.connect(self.capture_region)
         self._dock("Phone previews · scrcpy / screenshot fallback", "phone", self.live_panel, Qt.DockWidgetArea.RightDockWidgetArea)
         self.execution_panel = ExecutionPanel(self.logs)
         self.execution_panel.run_selected.connect(lambda _: self._show_execution_line())
@@ -146,26 +166,38 @@ class StudioWindow(QMainWindow):
         self.recorder_panel.pause_requested.connect(self.pause_recording)
         self.recorder_panel.stop_requested.connect(self.stop_recording)
         self.recorder_panel.insert_requested.connect(self.insert_recording)
+        self.recorder_panel.save_requested.connect(self.save_recording)
+        self.recorder_panel.load_requested.connect(self.load_recording)
+        self.recorder_panel.replay_requested.connect(self.replay_recording)
         self._dock("Action Recorder", "recorder", self.recorder_panel, Qt.DockWidgetArea.BottomDockWidgetArea)
-        self.tabifyDockWidget(self.docks["events"], self.docks["recorder"])
-        self.docks["events"].raise_()
         self.editor.error.connect(self.log)
         self.editor.document_changed.connect(lambda _: self._update_title())
         self._build_actions()
+        self.shell = WorkspaceShell(self)
+        self.setCentralWidget(self.shell)
+        self.device_manager.settings_requested.connect(lambda: self.show_workspace("settings"))
         self.editor.set_project_root(self.project_root)
         self.refresh_assets()
-        self.editor.set_text('# Assigned phone: simple functions and device methods share one context.\nprint(getDevice())\n# click(Pattern("start.png").similar(0.9))\n')
+        self.editor.set_text('# Choose your phone in the selector above.\nprint(getDevice())\n# Capture a target in Visual Tools, then:\n# click("start.png")\n')
         self.saved_source = self.editor.source
-        self.default_state = self.saveState()
         geometry = self.settings.value("geometry")
-        state = self.settings.value("layout")
         if geometry:
             self.restoreGeometry(geometry)
-        if state:
-            self.restoreState(state)
-        else:
-            self.resizeDocks([self.docks["devices"], self.docks["phone"]], [330, 330], Qt.Orientation.Horizontal)
-            self.resizeDocks([self.docks["events"]], [230], Qt.Orientation.Vertical)
+        # Legacy dock layout is retained in settings but no longer constrains
+        # the workspace shell. Splitter preferences have a versioned namespace.
+        self.shell.switch(self.settings.value("last_workspace", "studio"))
+        self.control_timer = QTimer(self)
+        self.control_timer.timeout.connect(self._sync_controls)
+        self.control_timer.start(150)
+        self.host_metrics = HostMetrics()
+        self.metrics_timer = QTimer(self)
+        self.metrics_timer.timeout.connect(self._update_host_metrics)
+        self.metrics_timer.start(1000)
+        self._set_editor_appearance()
+        self.live_panel.fps.setValue(integer(self.settings, "stream_fps", 30, 1, 60))
+        self.live_panel.bitrate.setValue(integer(self.settings, "stream_bitrate", 8, 1, 32))
+        self.live_panel.max_size.setValue(integer(self.settings, "stream_size", 1280, 256, 4096))
+        self.device_manager.redact_serials.setChecked(self.settings.value("redact_diagnostics", True, type=bool))
         self.preview_timer = QTimer(self)
         self.preview_timer.timeout.connect(self.capture_selected)
         self.preview_timer.start(1000)
@@ -175,7 +207,7 @@ class StudioWindow(QMainWindow):
         self.discovery_timer = QTimer(self)
         self.discovery_timer.timeout.connect(self.refresh_devices)
         if discover:
-            self.discovery_timer.start(3000)
+            self.discovery_timer.start(integer(self.settings, "discovery_seconds", 3, 1, 15) * 1000)
         self.log("Scripting engine: project image targets, isolated device contexts, cancellable waits and pause/resume.")
         self.log("Real-phone and Windows compatibility still require hardware validation. Debugger, OCR and scheduler are later phases.")
         if discover:
@@ -185,74 +217,66 @@ class StudioWindow(QMainWindow):
         dock = QDockWidget(title, self)
         dock.setObjectName(name)
         dock.setWidget(widget)
-        self.addDockWidget(area, dock)
+        dock.setTitleBarWidget(QWidget())
+        dock.setFeatures(QDockWidget.DockWidgetFeature.NoDockWidgetFeatures)
         self.docks[name] = dock
         return dock
 
-    @staticmethod
-    def _scroll_panel(panel):
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setWidget(panel)
-        scroll.setMinimumWidth(300)
-        return scroll
-
     def show_workspace(self, name):
-        if name == "studio":
-            self.docks["events"].show()
-            self.docks["events"].raise_()
-            self.editor.setFocus()
-            return
-        self.docks[name].show()
-        self.docks[name].raise_()
-        widget = self.docks[name].widget()
-        if isinstance(widget, QScrollArea):
-            widget.verticalScrollBar().setValue(0)
+        name = {"phone": "devices", "events": "monitor"}.get(name, name)
+        if hasattr(self, "shell"):
+            self.shell.switch(name)
+            self._sync_controls()
+
+    def open_preview(self):
+        self.show_workspace("devices")
+        self.shell.reveal_preview()
+        if self.streams.status(self.selected_serial()).state not in ("starting", "streaming"):
+            self.start_live()
 
     def _action(self, menu, title, callback, shortcut=None):
         action = QAction(title, self)
         action.triggered.connect(callback)
         if shortcut:
             action.setShortcut(shortcut)
+            self.addAction(action)
+            if shortcut in ("Ctrl+Shift+P", "Ctrl+Shift+F12"):
+                action.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
         menu.addAction(action)
         return action
 
     def _build_actions(self):
-        navigation = QToolBar("Workspace navigation", self)
-        navigation.setObjectName("workspaceToolbar")
-        self.addToolBar(navigation)
+        self.actions = {}
         workspace_menu = self.menuBar().addMenu("&Workspaces")
-        for label, key, shortcut in (("Script Studio", "studio", "Ctrl+1"),
-                                     ("Device Manager", "devices", "Ctrl+2"),
-                                     ("Screenshot & Visual Tools", "visual", "Ctrl+3"),
-                                     ("Action Recorder", "recorder", "Ctrl+4")):
-            action = self._action(navigation, label, lambda checked=False, name=key: self.show_workspace(name), shortcut)
-            workspace_menu.addAction(action)
-        safety = QToolBar("Emergency controls", self)
-        safety.setObjectName("safetyToolbar")
-        safety.setMovable(False)
-        self.addToolBar(safety)
-        self._action(safety, "Emergency stop", self.emergency_stop, "Ctrl+Shift+F12")
-        self.reset_stop_action = self._action(safety, "Reset emergency stop", self.reset_emergency_stop)
-        self.reset_stop_action.setEnabled(False)
-        self.addToolBarBreak()
+        for index, (label, key) in enumerate((("Script Studio", "studio"), ("Device Manager", "devices"),
+                 ("Screenshot & Visual Tools", "visual"), ("Action Recorder", "recorder"),
+                 ("Activity & Logs", "monitor"), ("Task Manager", "tasks"), ("Settings", "settings")), 1):
+            self.actions[key] = self._action(workspace_menu, label, lambda checked=False, name=key: self.show_workspace(name), f"Ctrl+{index}")
         file_menu = self.menuBar().addMenu("&File")
-        self._action(file_menu, "Open Python script…", self.open_script, QKeySequence.StandardKey.Open)
-        self._action(file_menu, "Save script", self.save_script, QKeySequence.StandardKey.Save)
+        self.actions["new"] = self._action(file_menu, "New Python script", self.new_script, QKeySequence.StandardKey.New)
+        self.actions["open"] = self._action(file_menu, "Open Python script…", self.open_script, QKeySequence.StandardKey.Open)
+        self.actions["save"] = self._action(file_menu, "Save script", self.save_script, QKeySequence.StandardKey.Save)
         self._action(file_menu, "Save script as…", lambda: self.save_script(save_as=True), QKeySequence.StandardKey.SaveAs)
         self._action(file_menu, "Choose project image library…", self.choose_project)
-        toolbar = QToolBar("Device and execution actions", self)
-        toolbar.setObjectName("mainToolbar")
-        self.addToolBar(toolbar)
-        self._action(toolbar, "Refresh devices", self.refresh_devices)
-        self._action(toolbar, "Capture PNG…", self.save_capture)
-        self._action(toolbar, "Capture image region…", self.capture_region, "Ctrl+Shift+C")
-        self._action(toolbar, "Home", lambda: self._key("HOME"))
-        self._action(toolbar, "Back", lambda: self._key("BACK"))
-        self.run_action = self._action(toolbar, "Run trusted script…", self.run_script, "F5")
-        self._action(toolbar, "Pause run", lambda: self._control_run("pause"), "F6")
-        self._action(toolbar, "Resume run", lambda: self._control_run("resume"), "Shift+F6")
-        self._action(toolbar, "Stop run", lambda: self._control_run("cancel"), "Shift+F5")
+        execution_menu = self.menuBar().addMenu("&Execution")
+        self.run_action = self._action(execution_menu, "Run trusted script…", self.run_script, "F5")
+        self.actions["run"] = self.run_action
+        self.actions["pause"] = self._action(execution_menu, "Pause run", lambda: self._control_run("pause"), "F6")
+        self.actions["resume"] = self._action(execution_menu, "Resume run", lambda: self._control_run("resume"), "Shift+F6")
+        self.actions["stop"] = self._action(execution_menu, "Stop run", lambda: self._control_run("cancel"), "Shift+F5")
+        self.actions["run_selected"] = self._action(execution_menu, "Run editor on selected phones…", self.run_selected_scripts, "Ctrl+F5")
+        self.actions["assign"] = self._action(execution_menu, "Assign Python file to current phone…", self.assign_script)
+        self.actions["run_assigned"] = self._action(execution_menu, "Run assigned files on selected phones…", self.run_assigned_scripts)
+        self._action(execution_menu, "Emergency stop", self.emergency_stop, "Ctrl+Shift+F12")
+        self.reset_stop_action = self._action(execution_menu, "Reset emergency stop", self.reset_emergency_stop)
+        self.reset_stop_action.setEnabled(False)
+        devices_menu = self.menuBar().addMenu("&Devices")
+        self._action(devices_menu, "Refresh devices", self.refresh_devices)
+        self._action(devices_menu, "Diagnose Connection", self.diagnose_connection)
+        self.actions["capture"] = self._action(devices_menu, "Capture image region…", self.capture_region, "Ctrl+Shift+C")
+        self.actions["capture_png"] = self._action(devices_menu, "Capture PNG…", self.save_capture)
+        self.actions["home"] = self._action(devices_menu, "Home", lambda: self._key("HOME"))
+        self.actions["back"] = self._action(devices_menu, "Back", lambda: self._key("BACK"))
         insert_menu = self.menuBar().addMenu("Insert API")
         for label, code in (("Image click", 'click("target.png")\n'),
                             ("Double click", 'doubleClick("target.png")\n'),
@@ -273,34 +297,171 @@ class StudioWindow(QMainWindow):
                             ("Type text", 'typeText("hello")\n'),
                             ("Capture", "screen = capture()\n"),
                             ("Explicit device", 'device.waitImage("target.png", timeout=10)\n')):
-            self._action(insert_menu, label, lambda checked=False, text=code: self.editor.insert(text))
-        api_toolbar = QToolBar("SikuliX commands", self)
-        api_toolbar.setObjectName("automationToolbar")
-        self.addToolBarBreak()
-        self.addToolBar(api_toolbar)
-        for label, code in (("Click image", 'click("target.png")\n'),
-                            ("Find image", 'match = find("target.png")\n'),
-                            ("Wait image", 'wait("target.png", timeout=10)\n'),
-                            ("Delay", "wait(2)\n"),
-                            ("Loop", "for attempt in range(3):\n    sleep(1)\n")):
-            self._action(api_toolbar, label, lambda checked=False, text=code: self.editor.insert(text))
-        execution_menu = self.menuBar().addMenu("Execution")
-        self._action(execution_menu, "Run editor on selected phones…", self.run_selected_scripts, "Ctrl+F5")
-        self._action(execution_menu, "Assign Python file to current phone…", self.assign_script)
-        self._action(execution_menu, "Run assigned files on selected phones…", self.run_assigned_scripts)
+            self._action(insert_menu, label, lambda checked=False, text=code: self.insert_code(text))
+        toolbar = QToolBar("Context actions", self)
+        toolbar.setObjectName("contextToolbarV2")
+        toolbar.setMovable(False)
+        toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.addToolBar(toolbar)
+        for key, glyph in (("new", "add"), ("open", "folder"), ("save", "studio"),
+                           ("run", "run"), ("pause", "pause"), ("resume", "run"),
+                           ("stop", "stop"), ("capture", "visual")):
+            action = self.actions[key]
+            action.setIcon(icon(glyph))
+            action.setIconText({"new": "New", "open": "Open", "save": "Save", "run": "Run", "pause": "Pause", "resume": "Resume", "stop": "Stop", "capture": "Capture target"}[key])
+            toolbar.addAction(action)
+            if key in ("save", "stop"):
+                toolbar.addSeparator()
+        toolbar.addAction(self.reset_stop_action)
         view_menu = self.menuBar().addMenu("&View")
-        for dock in self.findChildren(QDockWidget):
-            view_menu.addAction(dock.toggleViewAction())
-        self._action(view_menu, "Reset layout", lambda: self.restoreState(self.default_state))
+        self._action(view_menu, "Reset layout", lambda: self.shell.reset())
+        self._action(view_menu, "Command palette…", self.command_palette, "Ctrl+Shift+P")
         help_menu = self.menuBar().addMenu("&Help")
-        self._action(help_menu, "Scripting capabilities", lambda: QMessageBox.information(
-            self, "Development status", "This is a development build, not a production release.\n\n"
-            "Available: image-based Python API, project image library, Monaco signatures/hover previews, isolated runs, pause/resume/stop, ADB and scrcpy previews.\n\n"
-            "Also available: Device Manager, project Visual Tools, explicit multi-scale matching and a studio-control recorder.\n\n"
-            "Real-phone and Windows acceptance is outstanding. General Python language service, OCR, debugger, scheduling and release packages remain unavailable. See docs/SCRIPTING_API.md."))
+        self._action(help_menu, "Connection troubleshooting", self.diagnose_connection)
+        self._action(help_menu, "Scripting capabilities", lambda: QMessageBox.information(self, "Alpha capabilities",
+            "Available: Python image automation, Monaco, serial-bound workers, ADB/scrcpy previews, capture, recognition, diagnostics and studio-control recording.\n\n"
+            "Real phones and Windows still require hardware validation. Scheduling, debugger and OCR are not complete. See docs/ALPHA_STABILIZATION.md."))
 
     def log(self, message):
         self.logs.appendPlainText(time.strftime("%H:%M:%S ") + str(message))
+        self.statusBar().showMessage(str(message).splitlines()[0][:300], 8000)
+
+    def notify(self, message):
+        self.log(message)
+        if hasattr(self, "shell"):
+            self.shell.notification.setText(str(message))
+            self.shell.notification.show()
+
+    def insert_code(self, source):
+        if not self.editor.is_ready:
+            self.notify("Monaco is still loading. If it reports missing assets, run python tools/fetch_monaco.py.")
+            return
+        self.editor.insert(source)
+
+    def new_script(self):
+        try:
+            self.shell.documents.add(None, "", self.project_root)
+            self.show_workspace("studio")
+        except ValueError as error:
+            self.notify(error)
+
+    def command_palette(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Commands")
+        dialog.resize(600, 420)
+        layout = QVBoxLayout(dialog)
+        search = QLineEdit()
+        search.setPlaceholderText("Type a command…")
+        commands = QListWidget()
+        layout.addWidget(search)
+        layout.addWidget(commands)
+        # QAction ownership is the window; menu actions cover operations without shortcuts.
+        actions = [action for action in self.findChildren(QAction) if action.text() and not action.isSeparator() and action.menu() is None]
+        def filter_commands(text):
+            commands.clear()
+            for action in actions:
+                title = action.text().replace("&", "")
+                if text.lower() in title.lower():
+                    item = QListWidgetItem(title + ("  ·  " + action.shortcut().toString() if not action.shortcut().isEmpty() else ""))
+                    item.setData(Qt.ItemDataRole.UserRole, action)
+                    if not action.isEnabled():
+                        item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
+                        item.setToolTip(action.toolTip())
+                    commands.addItem(item)
+            if commands.count():
+                commands.setCurrentRow(0)
+        def invoke(item=None):
+            item = item or commands.currentItem()
+            if item and item.flags() & Qt.ItemFlag.ItemIsEnabled:
+                action = item.data(Qt.ItemDataRole.UserRole)
+                dialog.accept()
+                action.trigger()
+        search.textChanged.connect(filter_commands)
+        search.returnPressed.connect(invoke)
+        commands.itemDoubleClicked.connect(invoke)
+        filter_commands("")
+        search.setFocus()
+        dialog.exec()
+
+    def _set_editor_appearance(self):
+        if hasattr(self.editor, "set_appearance"):
+            self.editor.set_appearance(theme_name(self.settings), integer(self.settings, "editor_font_size", 14, 10, 24))
+
+    def apply_settings(self, values):
+        panel = self.shell.settings_panel
+        tool_changed = (values["adb_path"] != self.settings.value("adb_path", "")
+                        or values["scrcpy_server_path"] != self.settings.value("scrcpy_server_path", ""))
+        if tool_changed and (self.jobs or self._diagnostic_busy or self._network_pending
+                or self.pending_controls or self.pending_runs or any(r.exitcode is None for r in self.run_states)
+                or self._capture_dialogs or any(s.state in ("starting", "streaming", "stopping") for s in self.streams.statuses().values())):
+            panel.result.setText("Stop live previews and runs, and wait for pending operations before changing Android tools.")
+            return
+        if tool_changed:
+            new_adb = AdbClient(adb_executable(values["adb_path"]))
+            # The next diagnostic run verifies executable/version/permissions;
+            # selecting a path is configuration, never a connection success.
+            self.streams.close(timeout=0)
+            self.adb = new_adb
+            self.capture = CaptureService(new_adb)
+            self.streams = StreamManager(new_adb)
+            configured = os.environ.get("STUDIO_SCRCPY_SERVER") or values["scrcpy_server_path"]
+            if configured:
+                self.streams.server_path = Path(configured).expanduser()
+            self._apply_device_states(self.registry.mark_unknown())
+        for key, value in values.items():
+            self.settings.setValue(key, value)
+        self.settings.sync()
+        apply_theme(QApplication.instance(), values["theme"])
+        self._set_editor_appearance()
+        self.live_panel.fps.setValue(values["stream_fps"])
+        self.live_panel.bitrate.setValue(values["stream_bitrate"])
+        self.live_panel.max_size.setValue(values["stream_size"])
+        self.discovery_timer.setInterval(values["discovery_seconds"] * 1000)
+        self.device_manager.redact_serials.setChecked(values["redact_diagnostics"])
+        panel.effective_path.setText("Currently selected: " + self.adb.executable)
+        panel.result.setText("Settings saved. Worker limit applies at next launch. Use Diagnose Connection to verify Android tools.")
+        if tool_changed:
+            self.refresh_devices()
+
+    def _sync_controls(self):
+        if not hasattr(self, "shell") or self._closing:
+            return
+        serial = self.selected_serial()
+        available = bool(serial and self._device_available(serial))
+        idle = available and not self.busy(serial)
+        can_input = idle and not self._emergency_latched
+        self.device_manager.set_available(available, not idle)
+        self.run_action.setEnabled(can_input and self.editor.is_ready)
+        phones = self._selected_phones()
+        group_idle = bool(phones) and all(not self.busy(phone) for phone in phones) and not self._emergency_latched
+        self.actions["run_selected"].setEnabled(group_idle and self.editor.is_ready)
+        self.actions["assign"].setEnabled(available)
+        self.actions["run_assigned"].setEnabled(group_idle and all(phone in self.assignments for phone in phones) and self.editor.is_ready)
+        self.actions["home"].setEnabled(can_input)
+        self.actions["back"].setEnabled(can_input)
+        for key in ("capture", "capture_png"):
+            self.actions[key].setEnabled(available)
+            self.actions[key].setToolTip("Capture from the selected Android phone" if available else "Connect and select an authorized phone first")
+        run_id = self._active_run_id()
+        active = next((run for run in self.run_states if run.run_id == run_id and run.exitcode is None), None)
+        self.actions["pause"].setEnabled(bool(active and active.state == "running"))
+        self.actions["resume"].setEnabled(bool(active and active.state == "paused"))
+        self.actions["stop"].setEnabled(active is not None)
+        self.reset_stop_action.setVisible(self._emergency_latched)
+        self.shell.sync_devices()
+        self.shell.welcome.setVisible(not any(device.available for device in self.registry.snapshot()))
+        self.live_panel.set_control_state(available, can_input, self.streams.status(serial).state if serial else "stopped")
+        self.live_panel.start_all_action.setEnabled(any(device.available for device in self.registry.snapshot()))
+        self.recorder_panel.set_control_state(can_input, self.recorder.state)
+        self.visual_tools.set_control_state(available, self.editor.is_ready)
+
+    def _update_host_metrics(self):
+        sample = self.host_metrics.sample()
+        cpu = f"{sample['cpu_percent']:.1f}%" if sample["cpu_percent"] is not None else "collecting"
+        memory = f"{sample['resident_bytes'] / 1048576:.1f} MiB" if sample["resident_bytes"] is not None else "unavailable"
+        active = sum(run.exitcode is None for run in self.run_states)
+        self.shell.metrics.setText(f"Parent process • CPU {cpu} (one core = 100%) • Resident memory {memory}\n"
+                                   f"{active} active workers • {len(self.jobs)} pending operations. Worker/WebEngine child usage is not included.")
 
     def _submit(self, operation, callback):
         job = Job(operation)
@@ -325,6 +486,7 @@ class StudioWindow(QMainWindow):
 
     def busy(self, serial):
         return (serial in self.pending_controls or serial in self.pending_runs.values()
+                or (self._diagnostic_busy and serial == self._diagnostic_serial)
                 or any(r.serial == serial and r.exitcode is None for r in self.run_states))
 
     def refresh_devices(self):
@@ -336,6 +498,7 @@ class StudioWindow(QMainWindow):
             if error:
                 self.log(error)
                 observed = self.registry.mark_unknown()
+                self.device_manager.connection_status.setText(f"ADB discovery failed: {error}\n{SOLUTIONS['discovery']} Use Diagnose Connection for the failed stage.")
             else:
                 observed = self.registry.update(devices)
             self._apply_device_states(observed)
@@ -367,16 +530,94 @@ class StudioWindow(QMainWindow):
             del blocker
             self.device_manager.update_devices(observed)
             self._refresh_device_details()
+            self.device_manager.set_available(bool(self.selected_serial()), self.busy(self.selected_serial()))
+            if self._connection_confirmation is not None:
+                endpoint = self._connection_confirmation
+                self._connection_confirmation = None
+                found = next((device for device in observed if device.serial == endpoint), None)
+                if not error and found and found.available:
+                    self._verify_connection(endpoint)
+                else:
+                    message = f"Connection NOT verified for {endpoint}: {error or (found.state if found else 'not discovered')}. Run Diagnose Connection."
+                    self._connection_problem = message
+                    self.device_manager.connection_status.setText(message)
+                    self.device_manager.add_history(message)
             if not observed:
-                self.log("No devices reported by ADB. Connect a phone and authorize USB debugging.")
+                message = "No devices detected. Connect a USB data cable, unlock the phone and authorize debugging, then Refresh. School PC USB access may require IT permission."
+                if self._discovery_message != message:
+                    self.log(message)
+                self._discovery_message = message
+                if not error and not self._connection_problem:
+                    self.device_manager.connection_status.setText(message)
             if selected != self._selected_identity():
                 self._selection_changed(self.devices.currentItem(), None)
         self._submit(self.adb.devices, finished)
 
     def _refresh_device_details(self):
         serial = self._selected_identity()
+        self.device_manager.android_versions = self._android_versions
         self.device_manager.show_device(self.registry.get(serial) if serial else None,
                                         script=self.assignments.get(serial), screen=self._screen_info.get(serial))
+
+    def _verify_connection(self, serial):
+        token = self._connection_token(serial)
+        self.device_manager.connection_status.setText(f"Authorized transport discovered: {serial}. Checking Android response…")
+        def operation():
+            if token.is_set() or self.adb.state(serial) != "device":
+                raise RuntimeError("The discovered device is no longer available")
+            return self.adb.android_version(serial)
+        def finished(version, error):
+            if error or token.is_set():
+                message = f"Connection NOT verified for {serial}: {error or 'connection changed'}. Use Diagnose Connection."
+                self._connection_problem = message
+            else:
+                message = f"Connected and authorized: {serial} · Android {version}; device query succeeded."
+                self._connection_problem = None
+                self._android_versions[serial] = version
+            self.device_manager.connection_status.setText(message)
+            self.device_manager.add_history(message)
+            self.log(message)
+        self._submit(operation, finished)
+
+    def diagnose_connection(self):
+        self.show_workspace("devices")
+        self.device_manager.show_diagnostics()
+        if self._diagnostic_busy or self._closing:
+            return
+        serial = self._selected_identity()
+        if serial and self.busy(serial):
+            self.device_manager.connection_status.setText("Stop the selected phone's script/control operation before diagnostics.")
+            return
+        self._diagnostic_busy = True
+        self._diagnostic_serial = serial
+        self._diagnostic_cancel = threading.Event()
+        self.device_manager.diagnostic_busy(True)
+        runner = ConnectionDiagnostics(self.adb, self.streams, progress=self.diagnostic_progress.emit,
+                                       cancel=self._diagnostic_cancel)
+        video = self.device_manager.check_video.isChecked()
+        def finished(report, error):
+            self._diagnostic_busy = False
+            self._diagnostic_serial = None
+            self.device_manager.diagnostic_busy(False)
+            if error:
+                self.device_manager.connection_status.setText(f"Diagnostics failed: {error}")
+            else:
+                self.device_manager.set_report(report)
+                failed = next((step for step in report.steps if step.state == "failed"), None)
+                self.device_manager.connection_status.setText(
+                    f"Stopped at {failed.title}: {failed.detail}\n{failed.advice}" if failed else
+                    "Diagnostics finished. Review each stage; skipped checks remain NOT VERIFIED.")
+        self._submit(lambda: runner.run(serial, video=video), finished)
+
+    def reconnect_device(self):
+        serial = self._selected_identity()
+        try:
+            validate_endpoint(serial)
+        except ValueError:
+            self.device_manager.connection_status.setText("USB reconnect: check/unplug/replug the cable, unlock and authorize the phone. Refreshing discovery now. No shared ADB server will be restarted.")
+            self.refresh_devices()
+        else:
+            self._network_action("connect", serial)
 
     def _network_action(self, action, endpoint, code=None):
         if self._closing or self._network_pending:
@@ -387,6 +628,7 @@ class StudioWindow(QMainWindow):
             self.device_manager.connection_status.setText(str(error))
             return
         self._network_pending = True
+        self._connection_problem = None
         self.device_manager.set_network_busy(True)
         self.device_manager.connection_status.setText(f"{action.capitalize()} in progress: {endpoint}")
         def finished(result, error):
@@ -394,7 +636,14 @@ class StudioWindow(QMainWindow):
             self.device_manager.set_network_busy(False)
             message = error or result
             self.device_manager.connection_status.setText(message)
+            self.device_manager.add_history(message)
             self.log(message)
+            if error:
+                self._connection_problem = str(error)
+                self.notify(f"Connection failed: {error}. Open Diagnose Connection for details.")
+            if not error and action == "connect":
+                self._connection_confirmation = endpoint
+                self.device_manager.connection_status.setText(f"Transport acknowledged {endpoint}; checking discovery and authorization…")
             self.refresh_devices()
         operation = (lambda: self.adb.pair(endpoint, code)) if action == "pair" else lambda: getattr(self.adb, action)(endpoint)
         self._submit(operation, finished)
@@ -468,6 +717,45 @@ class StudioWindow(QMainWindow):
         except ValueError as error:
             self.log(str(error))
 
+    def save_recording(self):
+        try:
+            self.recorder_panel.source()
+            payload = self.recorder.session_json().encode("utf-8")
+            path, _ = QFileDialog.getSaveFileName(self, "Save recorder session", str(self.project_root / "recording.json"), "Recorder session (*.json)")
+            if path:
+                self._atomic_write(Path(path), payload)
+                self.recorder_panel.status.setText(f"Session saved: {path}. Reopening will not start replay.")
+        except (ValueError, OSError) as error:
+            self.recorder_panel.status.setText(str(error))
+
+    def load_recording(self):
+        if self.recorder.state != "stopped":
+            self.notify("Stop recording before opening a session.")
+            return
+        path, _ = QFileDialog.getOpenFileName(self, "Open recorder session", str(self.project_root), "Recorder session (*.json)")
+        if not path:
+            return
+        try:
+            if self.recorder_panel.table.rowCount() and QMessageBox.question(self, "Open recording", "Replace the current timeline? Save or insert it into a script first to keep it.") != QMessageBox.StandardButton.Yes:
+                return
+            file = Path(path)
+            if file.stat().st_size > 1_000_000:
+                raise ValueError("Recorder sessions must be smaller than 1 MB")
+            self.recorder.load_session(file.read_text(encoding="utf-8"))
+            self.recorder_panel.refresh(reset=True)
+            self.notify("Recording opened without executing it. Select a phone and verify screen geometry before replay.")
+        except (ValueError, OSError) as error:
+            self.recorder_panel.status.setText(str(error))
+
+    def replay_recording(self):
+        try:
+            source = self.recorder_panel.source()
+        except ValueError as error:
+            self.notify(error)
+            return
+        serial = self.selected_serial()
+        self._approve_and_run([(serial, source, "<editor>", self.project_root)])
+
     def refresh_assets(self):
         if self._closing:
             return
@@ -536,6 +824,7 @@ class StudioWindow(QMainWindow):
             self._observed_generations[device.serial] = signature
             if not device.available:
                 self._screen_info.pop(device.serial, None)
+                self._android_versions.pop(device.serial, None)
                 if self.recorder.serial == device.serial and self.recorder.state != "stopped":
                     self.stop_recording(f"Device {device.state}; reconnect and explicitly start a new recording")
                 self._connection_token(device.serial).set()
@@ -559,6 +848,7 @@ class StudioWindow(QMainWindow):
     def _selection_changed(self, current, previous):
         self.preview.clear()
         self._refresh_device_details()
+        self.device_manager.set_available(bool(self.selected_serial()), self.busy(self.selected_serial()))
         self._show_execution_line()
         serial = self.selected_serial()
         self.live_panel.status.setText(f"{serial or 'No available device'} · {self._preview_modes.get(serial, 'ADB screenshot fallback')}")
@@ -576,6 +866,12 @@ class StudioWindow(QMainWindow):
                     orientation = f"{info.orientation}°" if info.orientation is not None else "unavailable"
                     self.live_panel.geometry_label.setText(f"Android {info.width} × {info.height} · rotation {orientation}")
             self._submit(lambda: self.adb.screen_info(serial), metadata)
+            if hasattr(self.adb, "android_version"):
+                def version_done(version, error):
+                    if not token.is_set() and serial == self.selected_serial() and not error:
+                        self._android_versions[serial] = version
+                        self._refresh_device_details()
+                self._submit(lambda: self.adb.android_version(serial), version_done)
         self.capture_selected()
 
     def capture_selected(self):
@@ -854,7 +1150,10 @@ class StudioWindow(QMainWindow):
         self.editor.set_project_root(root, script_dir=script_dir)
         self.project_root = root
         self._project_explicit = explicit
-        self.project_label.setText(f"Project: {root}")
+        self.project_label.setText(f"Project: {root.name}")
+        self.project_label.setToolTip(str(root))
+        if hasattr(self, "shell"):
+            self.shell.project.refresh()
         self.refresh_assets()
         self.log(f"Image library: {root / 'images'} · project: {root}")
 
@@ -891,26 +1190,38 @@ class StudioWindow(QMainWindow):
             QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel)
         return self.save_script() if answer == QMessageBox.StandardButton.Save else answer == QMessageBox.StandardButton.Discard
 
+    def _confirm_all_documents(self):
+        self.shell.documents.remember()
+        for index, document in enumerate(self.shell.documents.documents):
+            if document.source != document.saved:
+                self.shell.documents.bar.setCurrentIndex(index)
+                if self.shell.documents.current != index or not self._confirm_discard():
+                    return False
+        return True
+
     def open_script(self):
-        if not self._confirm_discard():
-            return
         path, _ = QFileDialog.getOpenFileName(self, "Open Python script", "", "Python (*.py)")
         if path:
-            try:
-                candidate = Path(path)
-                if candidate.stat().st_size > 1_000_000:
-                    raise ValueError("Script exceeds 1 MB limit")
-                source = candidate.read_text(encoding="utf-8")
-                self.editor.set_text(source)
-                self.path = candidate
-                self.saved_source = source
-                if self._project_explicit and candidate.resolve().is_relative_to(self.project_root):
-                    self._set_project(self.project_root)
-                else:
-                    self._set_project(discover_project(candidate), explicit=False)
-                self._update_title()
-            except (OSError, ValueError) as error:
-                self.log(str(error))
+            self.open_script_path(Path(path))
+
+    def open_script_path(self, path):
+        from app.projects.library import AssetLibrary
+        try:
+            candidate = Path(path).resolve()
+            for index, document in enumerate(self.shell.documents.documents):
+                if document.path and document.path.resolve() == candidate:
+                    self.shell.documents.bar.setCurrentIndex(index)
+                    self.show_workspace("studio")
+                    return
+            if candidate.stat().st_size > 1_000_000:
+                raise ValueError("Script exceeds 1 MB limit")
+            source = candidate.read_text(encoding="utf-8")
+            root = self.project_root if self._project_explicit and candidate.is_relative_to(self.project_root) else discover_project(candidate)
+            AssetLibrary(root, candidate.parent)
+            self.shell.documents.add(candidate, source, root)
+            self.show_workspace("studio")
+        except (OSError, ValueError) as error:
+            self.notify(f"Could not open script: {error}")
 
     @staticmethod
     def _atomic_write(path, data):
@@ -947,6 +1258,8 @@ class StudioWindow(QMainWindow):
         dirty = " *" if self.editor.source != self.saved_source else ""
         self.setWindowTitle(f"{self.path.name if self.path else 'Untitled.py'}{dirty} · Android Automation Studio · Script Studio")
         self._show_execution_line()
+        if hasattr(self, "shell"):
+            self.shell.documents.remember()
 
     def run_script(self):
         serial = self.selected_serial()
@@ -1105,6 +1418,7 @@ class StudioWindow(QMainWindow):
         self.execution_panel.update_runs(self.run_states)
         self._release_confirmed_runs()
         self._show_execution_line()
+        self._sync_controls()
 
     def _release_confirmed_runs(self):
         # A previous completed run on the same serial does not acknowledge a
@@ -1137,10 +1451,11 @@ class StudioWindow(QMainWindow):
         if self._shutdown_complete:
             event.accept()
             return
-        if not self._closing and not self._confirm_discard():
+        if not self._closing and not self._confirm_all_documents():
             event.ignore()
             return
         self._closing = True
+        self._diagnostic_cancel.set()
         if self.recorder.state != "stopped":
             self.stop_recording("Window closing")
         self._manual_cancel.set()
@@ -1151,7 +1466,9 @@ class StudioWindow(QMainWindow):
         for dialog in tuple(self._capture_dialogs):
             dialog.reject()
         self.settings.setValue("geometry", self.saveGeometry())
-        self.settings.setValue("layout", self.saveState())
+        self.shell.save()
+        self.control_timer.stop()
+        self.metrics_timer.stop()
         self.settings.sync()
         runtime_closed = self.runtime.close(timeout=0)
         streams_closed = self.streams.close(timeout=0)

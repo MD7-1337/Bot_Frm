@@ -8,7 +8,8 @@ from pathlib import Path
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QImageReader, QPixmap
 from PySide6.QtWidgets import (QDoubleSpinBox, QFormLayout, QGridLayout, QLabel,
-                              QLineEdit, QListWidget, QPushButton, QVBoxLayout, QWidget)
+                              QHBoxLayout, QLineEdit, QListWidget, QPushButton, QSplitter, QVBoxLayout, QWidget)
+from app.ui.components import button, label, scroll, surface
 
 from app.projects.library import AssetLibrary, IMAGE_EXTENSIONS
 from app.vision.matching import Region, validate_scales
@@ -67,57 +68,77 @@ class VisualToolsPanel(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         layout = QVBoxLayout(self)
-        hint = QLabel("Select a phone in Device Manager, capture a region, then select an image below to insert or test it.")
-        hint.setWordWrap(True)
-        layout.addWidget(hint)
-        buttons = QGridLayout()
-        for index, (label, signal) in enumerate((("Capture region…", self.capture_requested),
-                                                ("Save full screenshot…", self.save_requested),
-                                                ("Choose project…", self.project_requested),
-                                                ("Refresh image library", self.refresh_requested))):
-            button = QPushButton(label)
-            button.clicked.connect(lambda checked=False, target=signal: target.emit())
-            buttons.addWidget(button, index // 2, index % 2)
-        layout.addLayout(buttons)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(label("Capture your first image target, or select a saved target from this project's image library.", "notice"))
+        split = QSplitter()
+        library, listing = surface()
+        listing.addWidget(label("IMAGE LIBRARY", "eyebrow"))
+        controls = QHBoxLayout()
+        controls.addWidget(button("Choose project…", self.project_requested.emit))
+        controls.addWidget(button("Refresh image library", self.refresh_requested.emit))
+        listing.addLayout(controls)
         self.assets = QListWidget()
         self.assets.setAccessibleName("Project image library")
         self.assets.currentTextChanged.connect(self.asset_selected)
-        layout.addWidget(self.assets, stretch=1)
-        self.thumbnail = QLabel("Select an image to preview")
+        listing.addWidget(self.assets, stretch=1)
+        self.capture_button = button("Capture region…", self.capture_requested.emit, primary=True)
+        self.save_button = button("Save full screenshot…", self.save_requested.emit)
+        listing.addWidget(self.capture_button)
+        listing.addWidget(self.save_button)
+        split.addWidget(library)
+        properties, form_layout = surface()
+        form_layout.addWidget(label("TARGET INSPECTOR", "eyebrow"))
+        self.thumbnail = label("Select a target to inspect its pixels")
         self.thumbnail.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.thumbnail.setMinimumHeight(80)
-        self.thumbnail.setMaximumHeight(140)
-        layout.addWidget(self.thumbnail)
+        self.thumbnail.setMinimumHeight(140)
+        self.thumbnail.setMaximumHeight(240)
+        form_layout.addWidget(self.thumbnail)
         options = QFormLayout()
         self.threshold = QDoubleSpinBox()
         self.threshold.setRange(0, 1)
         self.threshold.setDecimals(2)
         self.threshold.setValue(.9)
         self.threshold.setSingleStep(.01)
+        self.threshold.setToolTip("Normalized matching score, not a probability of correctness")
         self.scales = QLineEdit("1.0")
-        self.scales.setToolTip("Explicit template scales, e.g. 0.75, 1, 1.25. At most 16 values between 0.1 and 4.")
+        self.scales.setToolTip("Explicit scales: 0.75, 1, 1.25. At most 16 values between 0.1 and 4.")
         self.offset = QLineEdit("0, 0")
         self.region = QLineEdit()
         self.region.setPlaceholderText("optional x, y, width, height")
-        for label, widget in (("Minimum score", self.threshold), ("Template scales", self.scales),
-                              ("Target offset dx, dy", self.offset), ("Search region", self.region)):
-            widget.setMaxLength(256) if isinstance(widget, QLineEdit) else None
-            options.addRow(label, widget)
-        layout.addLayout(options)
+        for text, widget in (("Minimum score", self.threshold), ("Template scales", self.scales),
+                             ("Target offset", self.offset), ("Search bounds", self.region)):
+            if isinstance(widget, QLineEdit):
+                widget.setMaxLength(256)
+            options.addRow(text, widget)
+        form_layout.addLayout(options)
         insert = QGridLayout()
-        for index, (label, command) in enumerate((("Insert click", "click"), ("Insert find", "find"),
-                                                  ("Insert wait", "waitImage"), ("Insert image path", "path"))):
-            button = QPushButton(label)
-            button.clicked.connect(lambda checked=False, target=command: self.insert_requested.emit(target))
-            insert.addWidget(button, index // 2, index % 2)
-        layout.addLayout(insert)
-        self.test_button = QPushButton("Test selected image on fresh phone screen")
-        self.test_button.clicked.connect(lambda: self.test_requested.emit())
-        layout.addWidget(self.test_button)
-        self.status = QLabel("Image library has not been scanned yet.")
-        self.status.setTextFormat(Qt.TextFormat.PlainText)
-        self.status.setWordWrap(True)
+        self.insert_buttons = []
+        for index, (text, command) in enumerate((("Insert click", "click"), ("Insert find", "find"),
+                                                ("Insert wait", "waitImage"), ("Insert image path", "path"))):
+            widget = button(text, lambda target=command: self.insert_requested.emit(target))
+            insert.addWidget(widget, index // 2, index % 2)
+            self.insert_buttons.append(widget)
+        form_layout.addLayout(insert)
+        self.test_button = button("Test on fresh phone screen", self.test_requested.emit, primary=True)
+        form_layout.addWidget(self.test_button)
+        form_layout.addWidget(label("Matching never sends input. Review scores, ambiguity and original Android coordinates before inserting a click."))
+        form_layout.addStretch()
+        split.addWidget(scroll(properties))
+        split.setSizes([320, 440])
+        split.setStretchFactor(0, 1)
+        split.setStretchFactor(1, 1)
+        layout.addWidget(split, stretch=1)
+        self.status = label("Choose a project, then capture or select a target.")
         layout.addWidget(self.status)
+
+    def set_control_state(self, available, editor_ready):
+        selected = self.assets.currentItem() is not None
+        self.capture_button.setEnabled(available)
+        self.save_button.setEnabled(available)
+        self.test_button.setEnabled(available and selected)
+        for widget in self.insert_buttons:
+            widget.setEnabled(selected and editor_ready)
+        self.test_button.setToolTip("Match this template on a new screenshot" if available and selected else "Select both a connected phone and an image")
 
     def selected_reference(self):
         item = self.assets.currentItem()
@@ -134,7 +155,7 @@ class VisualToolsPanel(QWidget):
             self.assets.setCurrentRow(entries.index(selected))
 
     def set_thumbnail(self, image):
-        self.thumbnail.setPixmap(QPixmap.fromImage(image).scaled(240, 100, Qt.AspectRatioMode.KeepAspectRatio,
+        self.thumbnail.setPixmap(QPixmap.fromImage(image).scaled(360, 200, Qt.AspectRatioMode.KeepAspectRatio,
                                                                Qt.TransformationMode.SmoothTransformation))
         self.thumbnail.setToolTip(f"Original template: {image.width()} × {image.height()} pixels")
 

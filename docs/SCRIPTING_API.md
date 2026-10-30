@@ -1,5 +1,9 @@
 # Foundational Python scripting API
 
+Latest alpha UI/diagnostic and recorder changes are reported in
+[ALPHA_STABILIZATION.md](ALPHA_STABILIZATION.md). RGB pixel/color commands below
+are part of the real serial-bound scripting API; OCR is still not implemented.
+
 Implemented contract, 2026-10-30. This reference describes the executable API,
 not the broader proposed API in the original blueprint. All commands below are
 available as short functions and as methods on the worker-injected `device`.
@@ -82,6 +86,8 @@ input/application response atomic. Already-sent Android actions cannot be undone
 | --- | --- |
 | `find(image: str \| Pattern, *, region: Region \| None = None) -> Match` | One capture/search. No result raises `ImageNotFound`; multiple distinct qualifying targets raise `AmbiguousMatch` instead of selecting one blindly. |
 | `findAll(image: str \| Pattern, *, region: Region \| None = None, limit: int = 100) -> list[Match]` | One capture/search; score-descending results with overlap suppression. Limit is 1–10000. No matches gives `[]`. |
+| `getPixel(x: int, y: int) -> tuple[int, int, int]` | One fresh original-resolution capture, return `(red, green, blue)` integer channels in [0,255]. Invalid screen coordinates raise `InvalidCoordinates`; capture/device failures propagate. No input is sent. |
+| `findColor(color: tuple[int,int,int], tolerance: int = 0, *, region: Region \| None = None, limit: int = 100) -> list[Location]` | One capture, return pixel locations in row-major order, using inclusive per-channel absolute RGB difference ≤ tolerance. Channels/tolerance are integer [0,255], limit 1–10000. Region must lie wholly in the screen. No match returns `[]`; malformed color/tolerance/limit raises `ValueError`, invalid bounds raise `InvalidCoordinates`. Results are pixels, not clustered objects. |
 | `exists(image: str \| Pattern, *, region: Region \| None = None) -> Match \| None` | Unique match or `None` for legitimate visual absence only. Missing files, invalid templates, ambiguity and connection failures still raise. |
 | `waitImage(image: str \| Pattern, timeout: float = 10.0, *, poll_interval: float = 0.2) -> Match` | Poll for a unique match until a monotonic wall-clock deadline. |
 | `waitVanish(image: str \| Pattern, timeout: float = 15.0, *, poll_interval: float = 0.2) -> None` | Poll until a valid capture contains zero matches. A capture/disconnection failure is never disappearance success. |

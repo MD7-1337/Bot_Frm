@@ -41,6 +41,7 @@ class EditorWidget(QWidget):
         self.is_ready = False
         self.execution_line = None
         self.run_status = "Idle"
+        self.appearance = ("dark", 14)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         self.status = QLabel("Loading local Monaco editor…")
@@ -80,6 +81,7 @@ class EditorWidget(QWidget):
         self.set_text(self.source)
         self.set_execution_line(self.execution_line)
         self.set_run_status(self.run_status)
+        self.set_appearance(*self.appearance)
         self.ready.emit()
 
     def _on_change(self, source: str):
@@ -128,3 +130,10 @@ class EditorWidget(QWidget):
         self.page.setWebChannel(None)
         self.view.setPage(None)
         self.page.deleteLater()
+
+    def set_appearance(self, theme: str, font_size: int):
+        if theme not in ("light", "dark") or type(font_size) is not int or not 10 <= font_size <= 24:
+            raise ValueError("Editor appearance requires light/dark and a font size from 10 to 24")
+        self.appearance = theme, font_size
+        if self.is_ready:
+            self.page.runJavaScript("window.studio.setAppearance(" + json.dumps(theme) + "," + str(font_size) + ")")

@@ -68,7 +68,7 @@ def test_real_monaco_webchannel_roundtrip():
 @pytest.mark.skipif(os.environ.get("STUDIO_GUI_TESTS") != "1", reason="Set STUDIO_GUI_TESTS=1 with desktop or documented headless Qt setup")
 def test_integrated_workbench_starts_and_cleans_up(tmp_path):
     root = Path(__file__).resolve().parents[1]
-    environment = dict(os.environ, XDG_CONFIG_HOME=str(tmp_path))
+    environment = dict(os.environ, XDG_CONFIG_HOME=str(tmp_path), STUDIO_CONFIG_DIR=str(tmp_path))
     result = subprocess.run([sys.executable, "-m", "app.main", "--smoke"], cwd=root,
                             env=environment, capture_output=True, text=True, timeout=35)
     assert result.returncode == 0, result.stdout + result.stderr

@@ -57,6 +57,13 @@ class FixtureAdb:
     def devices(self):
         return list(self.observed)
 
+    def state(self, serial):
+        return next((device.state for device in self.observed if device.serial == serial), "disconnected")
+
+    def android_version(self, serial):
+        assert self.state(serial) == "device"
+        return "fixture-Android"
+
     def screen_info(self, serial):
         return ScreenInfo(120, 200, 0)
 

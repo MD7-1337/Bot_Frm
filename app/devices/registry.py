@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import replace
 import threading
 
-from app.devices.adb import DeviceInfo, validate_serial
+from app.devices.adb import DeviceInfo, validate_observed_serial
 
 
 class DeviceRegistry:
@@ -22,7 +22,9 @@ class DeviceRegistry:
         for device in devices:
             if not isinstance(device, DeviceInfo):
                 raise ValueError("Device snapshots must contain DeviceInfo records")
-            validate_serial(device.serial)
+            validate_observed_serial(device.serial)
+            if set(device.serial) == {"?"} and device.available:
+                raise ValueError("An unreadable USB serial cannot be an available device")
             if device.serial in incoming:
                 raise ValueError("Duplicate device serial in discovery result")
             incoming[device.serial] = device

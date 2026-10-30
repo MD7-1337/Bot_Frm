@@ -1,0 +1,40 @@
+name: Alpha source tests
+on:
+  push:
+    branches: [feat/device-manager-visual-tools, fix/alpha-device-connect-and-ux-overhaul]
+  pull_request:
+    branches: [main, feat/device-manager-visual-tools]
+permissions:
+  contents: read
+jobs:
+  source-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install source dependencies
+        run: |
+          python -m pip install uv==0.12.23
+          uv sync --locked --extra test --python 3.12
+      - name: Linux Qt libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libgl1 libnss3 libnspr4 libasound2 libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-image0 libxcb-render-util0 libxcb-shape0 libxcb-xinerama0
+      - name: Restore verified local editor and Android tools
+        run: |
+          uv run python tools/fetch_monaco.py
+          uv run python tools/fetch_adb.py
+          uv run python tools/fetch_scrcpy.py
+      - name: Full source and GUI suite (fixtures, no phones)
+        env:
+          STUDIO_GUI_TESTS: '1'
+          QT_QPA_PLATFORM: offscreen
+          QTWEBENGINE_CHROMIUM_FLAGS: --disable-gpu
+        run: uv run python -m pytest -q

@@ -1,5 +1,9 @@
 # Foundational scripting engine — implementation and validation
 
+Latest alpha: [ALPHA_STABILIZATION.md](ALPHA_STABILIZATION.md) adds diagnostics,
+workspace integration, recorder JSON sessions and bound RGB APIs. Reports below
+remain historical evidence for their own source stages.
+
 Subsequent increment: [Device Manager and Visual Tools](DEVICE_MANAGER_VISUAL_TOOLS.md)
 adds explicit multi-scale Pattern matching and a studio-control recorder. The
 496-test report below remains the historical scripting-engine stage record.

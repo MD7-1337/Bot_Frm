@@ -110,6 +110,17 @@ def validate_serial(serial: str) -> str:
     return serial
 
 
+def validate_observed_serial(serial: str) -> str:
+    """ADB cannot read a USB serial without permissions; retain that diagnostic row.
+
+    Question-mark identifiers are never accepted by validate_serial or routed to
+    a transport. They may persist as disconnected/unknown diagnostic entries.
+    """
+    if isinstance(serial, str) and re.fullmatch(r"\?{1,64}", serial):
+        return serial
+    return validate_serial(serial)
+
+
 def validate_endpoint(endpoint: str) -> str:
     """Require one explicit host:port (or [IPv6]:port), never ADB's all target."""
     if not isinstance(endpoint, str) or len(endpoint) > 255:
@@ -260,9 +271,22 @@ class AdbClient:
             raise AdbError(f"ADB did not confirm disconnection of {endpoint}.")
         return f"Disconnected {endpoint}"
 
+    def start_server(self) -> None:
+        """Ask ADB to start/respond; never kill or restart unrelated server sessions."""
+        self._run(["start-server"])
+
+    def device_listing(self) -> str:
+        output = self._run(["devices", "-l"])
+        if len(output) > 100_000:
+            raise AdbError("ADB device listing exceeds the diagnostic size limit")
+        return output.decode("utf-8", errors="replace")
+
     def devices(self) -> list[DeviceInfo]:
+        return self.parse_devices(self.device_listing())
+
+    @staticmethod
+    def parse_devices(output: str) -> list[DeviceInfo]:
         result: list[DeviceInfo] = []
-        output = self._run(["devices", "-l"]).decode("utf-8", errors="replace")
         lines = output.splitlines()
         header = next((index for index, line in enumerate(lines) if line.strip() == "List of devices attached"), None)
         if header is None:
@@ -274,17 +298,29 @@ class AdbClient:
                 continue
             # The long listing may contain product/device/transport_id fields.
             try:
-                validate_serial(parts[0])
+                validate_observed_serial(parts[0])
             except ValueError:
                 continue
             if parts[0] in seen:
+                if set(parts[0]) == {"?"} and parts[1] == "no":
+                    # Several unreadable serials cannot be distinguished. Keep
+                    # one diagnostic row; never invent controllable identities.
+                    continue
                 raise AdbError("ADB discovery reported duplicate serials; refusing an ambiguous device list.")
             seen.add(parts[0])
             model = next((part[6:] for part in parts[2:] if part.startswith("model:")), None)
             states = {"device", "offline", "unauthorized", "recovery", "rescue", "sideload", "bootloader", "host", "authorizing", "connecting"}
             state = "no permissions" if parts[1] == "no" else parts[1] if parts[1] in states else "unknown"
+            if set(parts[0]) == {"?"}:
+                state = "no permissions"
             result.append(DeviceInfo(parts[0], state, model))
         return result
+
+    def android_version(self, serial: str) -> str:
+        value = self._device(serial, "shell", "getprop", "ro.build.version.release").decode("utf-8", errors="replace").strip()
+        if not value or len(value) > 100 or any(ord(char) < 32 for char in value):
+            raise AdbError("Android version is unavailable from this device")
+        return value
 
     def screenshot(self, serial: str) -> bytes:
         image = self._device(serial, "exec-out", "screencap", "-p")
