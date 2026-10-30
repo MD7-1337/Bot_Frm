@@ -85,7 +85,7 @@ class RuntimeService(QObject):
     def start(
         self, source: str, serial: str, *, trusted: bool = False, backend: Backend = "mock",
         adb_executable: str = "adb", script_id: str = "<script>",
-        project_root: str | Path | None = None, mock_config: dict | None = None,
+        project_root: str | Path | None = None, mock_config: dict | None = None, simulation_config: dict | None = None, ocr_config: dict | None = None,
     ) -> str:
         """Queue a trusted script; return request ID without compiling or spawning."""
         if self._emergency_latched.is_set():
@@ -100,7 +100,7 @@ class RuntimeService(QObject):
             generation = device.generation
         return self._submit("start", source=source, serial=serial, trusted=trusted,
                             backend=backend, adb_executable=adb_executable, script_id=script_id,
-                            project_root=project_root, mock_config=mock_config,
+                            project_root=project_root, mock_config=mock_config, simulation_config=simulation_config, ocr_config=ocr_config,
                             _connection_generation=generation)
 
     @staticmethod

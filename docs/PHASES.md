@@ -1,5 +1,15 @@
 # Delivery phases, gates and test strategy
 
+Latest Phase 6 increment: [PHASE6_VALIDATION.md](PHASE6_VALIDATION.md). Integrated
+stateful offline simulation, optional working Tesseract OCR, image preprocessing,
+RGB/recognition inspector, recorder pre-tap evidence and saved image conversion
+are implemented. A small Phase 7 slice classifies failures and navigates matching
+source snapshots; DAP/breakpoints/stepping/locals, automatic recovery and scheduling
+remain deferred. Actual Android overlays/rotation/multi-phone acceptance and Windows
+runtime validation still gate Phase 6 completion and Beta. Reports below describe
+prior increments and do not override this status.
+
+
 Current alpha stabilization: [ALPHA_STABILIZATION.md](ALPHA_STABILIZATION.md)
 adds real staged connection diagnostics, central workspaces, recorder sessions
 and RGB pixel/color APIs. Hardware/Windows acceptance, OCR, debugger and scheduling

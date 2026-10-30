@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import inspect
 
-from app.automation.api import API_METHOD_NAMES, Device, Location, Match, Offset, Pattern, Region, Screen
+from app.automation.api import API_METHOD_NAMES, Device, Location, Match, Offset, Pattern, Region, Screen, TextMatch, OCRResult
 
 
 def _entry(name, value, kind, member_of=None):
@@ -25,8 +25,8 @@ def _entry(name, value, kind, member_of=None):
 def api_catalog() -> list[dict]:
     """Return signatures/docs for functions, constructors and Pattern builders."""
     result = [_entry(name, getattr(Device, name), "function", "device") for name in API_METHOD_NAMES]
-    for model in (Pattern, Region, Location, Offset, Match, Screen):
+    for model in (Pattern, Region, Location, Offset, Match, Screen, TextMatch, OCRResult):
         result.append(_entry(model.__name__, model, "type"))
-    for name in ("similar", "targetOffset", "inRegion", "atScales"):
+    for name in ("similar", "targetOffset", "inRegion", "atScales", "preprocess"):
         result.append(_entry(name, getattr(Pattern, name), "method", "Pattern"))
     return result

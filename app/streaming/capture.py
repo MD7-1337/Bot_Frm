@@ -21,6 +21,7 @@ class ScreenFrame:
     width: int
     height: int
     captured_at: float
+    transport: str = "adb"
 
 
 class CaptureService:

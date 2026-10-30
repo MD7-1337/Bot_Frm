@@ -1,8 +1,8 @@
 # Android Automation Studio
 
-A Windows-targeted desktop IDE for Android visual automation. **The current alpha adds staged connection diagnostics and a workspace redesign to the existing Python/Monaco, ADB/scrcpy and isolated scripting engine. It is not a production release and has not passed real-phone or Windows acceptance.**
+A Windows-targeted desktop IDE for Android visual automation. **The current alpha adds opt-in offline simulation, optional local Tesseract OCR, a recognition inspector and recorder image conversion to the existing PySide6/Monaco, ADB/scrcpy and isolated scripting engine. It has not passed real-phone or Windows acceptance.**
 
-Start here: [local testing without sudo, phone diagnostics and first workflows](docs/LOCAL_TESTING.md). The [alpha stabilization report](docs/ALPHA_STABILIZATION.md) separates confirmed code repairs from the user's PC-level USB problem; the [control inventory](docs/CONTROL_INVENTORY.md) records what is verified and what requires hardware.
+Start here: [local testing without sudo, demo mode and first workflows](docs/LOCAL_TESTING.md). Read the latest [Phase 6 validation](docs/PHASE6_VALIDATION.md), [simulation guide](docs/SIMULATION.md), [recognition guide](docs/RECOGNITION.md), [recorder guide](docs/RECORDER.md) and [Phase 7 foundation](docs/DEBUGGING.md). The [alpha stabilization report](docs/ALPHA_STABILIZATION.md) separates confirmed code repairs from the user's PC-level USB problem; the [control inventory](docs/CONTROL_INVENTORY.md) records what is verified and what requires hardware.
 
 Start with the [engineering blueprint](docs/BLUEPRINT.md), [technology decisions](docs/DECISIONS.md), [milestones](docs/PHASES.md), and [actual validation results](docs/VALIDATION.md).
 
@@ -32,9 +32,13 @@ The original [product specification](docs/PRODUCT_SPECIFICATION.md) is retained 
 - A serial-bound recorder of acknowledged studio controls, editable/reorderable Python timeline, JSON session save/open and normal trusted-worker replay. It does not record touches made outside the studio.
 - Fresh RGB `getPixel` / `findColor` APIs with regions, explicit tolerance and serial-local contexts.
 
-The workbench always uses the real ADB backend. Mock devices are confined to explicitly identified tests/examples. Missing dependencies/devices produce actionable errors.
+- Explicit Start Demo Session with three stateful scenarios, separate simulation identities/transport, real OpenCV matching, screenshot tools, recorder and normal spawned Python workers. No ADB registry entries or silent fallback.
+- Optional offline Tesseract text APIs with bounding boxes, RGB/image/OCR inspector, preprocessing and generated Monaco assistance.
+- Pre-tap recorder screenshots, real crop/save/coordinate-to-image conversion and classified worker failures with source navigation.
 
-**Not implemented yet:** general Python language service, full project backup/import/export management, OCR/UI-element APIs, advanced recorder image conversion/curved multitouch, breakpoint debugger, scheduler, SQLite business persistence, updater, installer or portable Windows build. Task Manager explicitly describes planned scheduling and links to real script assignments.
+Real phones use the existing ADB/scrcpy backend. Simulation is explicitly opt-in and labeled **SIMULATED DEVICE — NOT CONNECTED TO ANDROID HARDWARE**. Missing dependencies/devices produce actionable errors.
+
+**Not implemented yet:** general Python language service, full project backup/import/export management, UI-element APIs, curved multitouch and full Android recorder semantics, breakpoint debugger, scheduler, SQLite business persistence, updater, installer or portable Windows build. Task Manager explicitly describes planned scheduling and links to real script assignments.
 
 ## Development setup
 
@@ -79,7 +83,9 @@ Core editing and worker execution do not require internet after setup. Physical 
 7. Edit a script using the API below, then F5/**Run trusted script…** on the current phone. Ctrl+F5 runs the same source independently on selected device rows. **Execution → Assign Python file… / Run assigned files…** supports different source files per phone. Approve the exact source snapshots and serials; manual controls for those phones are blocked while workers own them.
 8. Use **Emergency stop** or `Ctrl+Shift+F12` to latch stopping; reset explicitly before allowing new input/runs. Disconnect/unknown states invalidate only that phone's queued work and workers. Reconnect and start again explicitly; old work is not replayed. An already-sent Android command cannot be undone.
 
-Set `STUDIO_ADB` to an explicit executable path when needed. Otherwise the application tries PATH, then its verified local tools. `STUDIO_SCRCPY_SERVER` may select a local server file but must match the exact pinned artifact. The native scrcpy desktop executable is optional. Wi-Fi connect/pair UI remains later-phase work; an already connected Wi-Fi ADB serial can be discovered. Do not expose an unauthenticated ADB port to untrusted networks.
+For useful phone-free development, launch the normal app and choose **Start Demo Session** (`Ctrl+Shift+D`). Select scenarios under **Device Manager → Simulation**. See [the demo workflow](docs/SIMULATION.md).
+
+Set `STUDIO_ADB` to an explicit executable path when needed. Otherwise the application tries PATH, then its verified local tools. `STUDIO_SCRCPY_SERVER` may select a local server file but must match the exact pinned artifact. The native scrcpy desktop executable is optional. Wi-Fi connect/pair is available in Device Manager; its actual Android acceptance still needs hardware. Do not expose an unauthenticated ADB port to untrusted networks.
 
 Select a row under **Script runs** and use F6 to pause, Shift+F6 to resume, or Shift+F5 to stop it. Pause is acknowledged only at a safe point; native calls can delay acknowledgment. Editing source clears its stale execution-line decoration. Project choice and file assignments are session context, not a persistent task scheduler.
 

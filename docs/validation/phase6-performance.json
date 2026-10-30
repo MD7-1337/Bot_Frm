@@ -1,0 +1,55 @@
+{
+  "environment": "Linux-6.18.55-x86_64-with-glibc2.41",
+  "python": "3.12.14",
+  "source": "stateful simulation, 360x720 RGB, no Android hardware",
+  "render_and_database": {
+    "samples": 50,
+    "median_ms": 2.68,
+    "max_ms": 4.48
+  },
+  "png_capture": {
+    "samples": 30,
+    "median_ms": 5.11,
+    "max_ms": 7.56
+  },
+  "four_captures_sequential": {
+    "samples": 20,
+    "median_ms": 10.21,
+    "max_ms": 12.43
+  },
+  "rgb_template_fullscreen": {
+    "samples": 30,
+    "median_ms": 12.45,
+    "max_ms": 17.64
+  },
+  "rgb_template_region": {
+    "samples": 30,
+    "median_ms": 1.63,
+    "max_ms": 3.48
+  },
+  "color_first_100": {
+    "samples": 30,
+    "median_ms": 7.99,
+    "max_ms": 12.74
+  },
+  "tesseract_button_region": {
+    "samples": 5,
+    "median_ms": 128.44,
+    "max_ms": 150.68
+  },
+  "parent_metrics": {
+    "cpu_percent": null,
+    "resident_bytes": 53837824
+  },
+  "gui_run_100_percent": {
+    "window_to_monaco_ms": 963.1,
+    "heartbeat_samples": 658,
+    "max_heartbeat_gap_ms": 279.8
+  },
+  "gui_run_125_percent": {
+    "window_to_monaco_ms": 944.0,
+    "heartbeat_samples": 637,
+    "max_heartbeat_gap_ms": 356.2
+  },
+  "limitations": "Short fixture sample; GUI screenshot/resize/theme/WebEngine initialization included. Not Android, Windows, sustained FPS, total memory or a throughput guarantee."
+}

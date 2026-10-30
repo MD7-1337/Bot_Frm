@@ -1,9 +1,9 @@
 name: Alpha source tests
 on:
   push:
-    branches: [feat/device-manager-visual-tools, fix/alpha-device-connect-and-ux-overhaul]
+    branches: [feat/device-manager-visual-tools, fix/alpha-device-connect-and-ux-overhaul, feat/phase6-recognition-simulator]
   pull_request:
-    branches: [main, feat/device-manager-visual-tools]
+    branches: [main, feat/device-manager-visual-tools, fix/alpha-device-connect-and-ux-overhaul]
 permissions:
   contents: read
 jobs:

@@ -146,7 +146,7 @@ class PhonePreview(QWidget):
         self._source_size = source_size
         self.image = image
         self.frame = frame
-        self.setToolTip("Live scrcpy video · tap, double tap, hold or drag" if video
+        self.setToolTip("SIMULATED DEVICE — NOT CONNECTED TO ANDROID HARDWARE" if getattr(frame, "transport", "adb") == "simulation" else "Live scrcpy video · tap, double tap, hold or drag" if video
                         else "ADB screenshot fallback · tap, double tap, hold or drag")
         self.update()
 

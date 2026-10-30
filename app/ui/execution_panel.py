@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QHeaderView, QLabel, QTableWid
 
 class ExecutionPanel(QWidget):
     run_selected = Signal(str)
+    failure_selected = Signal(str)
 
     def __init__(self, logs, parent=None):
         super().__init__(parent)
@@ -27,6 +28,7 @@ class ExecutionPanel(QWidget):
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.itemSelectionChanged.connect(self._selection_changed)
+        self.table.itemDoubleClicked.connect(lambda item: self.failure_selected.emit(item.data(Qt.ItemDataRole.UserRole)))
         self.table.setAccessibleName("Independent script executions")
         tabs.addTab(self.table, "Script runs")
         tabs.addTab(logs, "Output and events")
@@ -34,6 +36,7 @@ class ExecutionPanel(QWidget):
         self.rows: dict[str, int] = {}
         self.lines: dict[str, int] = {}
         self.errors: dict[str, str] = {}
+        self.failures: dict[str, dict] = {}
 
     def selected_run(self) -> str | None:
         items = self.table.selectedItems()
@@ -58,6 +61,7 @@ class ExecutionPanel(QWidget):
                     for key in removed:
                         self.lines.pop(key, None)
                         self.errors.pop(key, None)
+                        self.failures.pop(key, None)
                 self.rows[run.run_id] = self.table.rowCount()
                 self.table.insertRow(self.table.rowCount())
             row = self.rows[run.run_id]
@@ -68,6 +72,8 @@ class ExecutionPanel(QWidget):
                 item.setData(Qt.ItemDataRole.UserRole, run.run_id)
                 if column == 1:
                     item.setToolTip(run.script_id)
+                elif column == 4 and run.run_id in self.failures:
+                    item.setToolTip(self.failure_detail(self.failures[run.run_id]))
                 self.table.setItem(row, column, item)
         if selected in self.rows:
             self.table.selectRow(self.rows[selected])
@@ -80,6 +86,7 @@ class ExecutionPanel(QWidget):
         if kind == "line":
             self.lines[run_id] = event["line"]
         elif kind == "error":
+            self.failures[run_id] = event
             self.errors[run_id] = f"{event.get('error_type', 'Error')}: {event.get('message', '')}"
         if run_id in self.rows:
             row = self.rows[run_id]
@@ -90,5 +97,13 @@ class ExecutionPanel(QWidget):
             elif kind == "error":
                 item = QTableWidgetItem(self.errors[run_id])
                 item.setData(Qt.ItemDataRole.UserRole, run_id)
-                item.setToolTip(event.get("traceback", self.errors[run_id]))
+                item.setToolTip(self.failure_detail(event))
                 self.table.setItem(row, 4, item)
+
+    @staticmethod
+    def failure_detail(event):
+        failure = event.get("failure", {})
+        return (f"{failure.get('category', 'unclassified')}: {failure.get('advice', '')}\n"
+                f"{event.get('source_path', '')}:{event.get('source_line', '')}\n"
+                "Double-click to inspect the failed line. Restart is explicit; no automatic retry.\n"
+                + event.get("traceback", ""))

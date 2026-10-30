@@ -94,3 +94,20 @@ def test_downscale_can_find_template_larger_than_search_image():
     frame[10:30, 15:39] = resized
     assert find_all(frame, template) == []
     assert [match.region for match in find_scaled(frame, template, .99, scales=(.2,))] == [Region(15, 10, 24, 20)]
+
+
+@pytest.mark.parametrize('mode',['grayscale','threshold','edges'])
+def test_preprocessed_matches_preserve_region_and_original_pixels(mode):
+    template=np.zeros((32,40,3),np.uint8)
+    cv2.rectangle(template,(5,6),(15,25),(255,255,255),-1)
+    cv2.circle(template,(28,15),7,(255,255,255),2)
+    frame=np.zeros((100,160,3),np.uint8)
+    frame[5:37,8:48]=template
+    originals=frame.copy(),template.copy()
+    pattern=Pattern('image.png').preprocess(mode).similar(.99).atScales(1)
+    assert pattern.preprocessing==mode
+    assert pattern.target_offset.x==0 and pattern.target_offset.y==0
+    result=find_scaled(frame,template,.99,Region(0,0,60,50),preprocess=mode)
+    assert result and result[0].region==Region(8,5,40,32)
+    np.testing.assert_array_equal(frame,originals[0]); np.testing.assert_array_equal(template,originals[1])
+    with pytest.raises(ValueError): Pattern('image.png').preprocess('unsupported')

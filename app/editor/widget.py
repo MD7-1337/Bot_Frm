@@ -126,6 +126,13 @@ class EditorWidget(QWidget):
         if self.is_ready:
             self.page.runJavaScript("window.studio.setRunStatus(" + json.dumps(self.run_status) + ")")
 
+    def reveal_line(self, line: int):
+        """Navigate to a host-validated failure line without changing source."""
+        if type(line) is not int or line < 1:
+            raise ValueError("Source line must be a positive integer")
+        if self.is_ready:
+            self.page.runJavaScript(f"window.studio.editor.setPosition({{lineNumber:{line},column:1}});window.studio.editor.revealLineInCenter({line});window.studio.editor.focus();")
+
     def shutdown(self):
         self.page.setWebChannel(None)
         self.view.setPage(None)

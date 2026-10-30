@@ -4,7 +4,7 @@ from __future__ import annotations
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (QFormLayout, QGroupBox, QHBoxLayout,
                               QLabel, QMenu, QPushButton, QScrollArea, QSpinBox, QToolButton,
-                              QVBoxLayout, QWidget)
+                              QSizePolicy, QVBoxLayout, QWidget)
 
 from app.ui.components import button, label
 
@@ -32,6 +32,7 @@ class LivePanel(QWidget):
         heading.addWidget(self.configure)
         layout.addLayout(heading)
         self.status = label("Connect and select a phone, then start live video.", "notice")
+        self.status.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         layout.addWidget(self.status)
         self.quality = QGroupBox("Next stream settings")
         settings = QFormLayout(self.quality)
@@ -69,6 +70,7 @@ class LivePanel(QWidget):
             controls.addWidget(widget)
         layout.addLayout(controls)
         self.geometry_label = label("Original resolution: awaiting a frame")
+        self.geometry_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         layout.addWidget(self.geometry_label)
         android = QHBoxLayout()
         self.back_button = button("Back", self.back_requested.emit)

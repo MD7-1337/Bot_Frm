@@ -65,5 +65,13 @@ class UnsupportedCapability(AutomationError):
     """The requested feature/input cannot be represented by this backend."""
 
 
+class OCRUnavailable(UnsupportedCapability):
+    """Configure a local OCR executable/language model; no model is auto-downloaded."""
+
+
+class OCRFailed(AutomationError):
+    """OCR execution or output failed, distinct from legitimate text absence."""
+
+
 class Cancelled(AutomationError):
     """The execution context cancelled before or during an API safe point."""

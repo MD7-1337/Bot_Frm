@@ -6,13 +6,13 @@ from pathlib import Path
 import threading
 import time
 
-from PySide6.QtCore import QObject, QRunnable, QSignalBlocker, QThreadPool, QTimer, Qt, Signal, Slot
+from PySide6.QtCore import QStandardPaths, QObject, QRunnable, QSignalBlocker, QThreadPool, QTimer, Qt, Signal, Slot
 from PySide6.QtGui import QAction, QCloseEvent, QImage, QKeySequence
 from PySide6.QtWidgets import (QAbstractItemView, QDockWidget, QFileDialog, QLabel, QListWidget, QListWidgetItem,
                               QApplication, QDialog, QInputDialog, QLineEdit, QMainWindow, QMessageBox, QPlainTextEdit, QToolBar, QVBoxLayout, QWidget)
 
 from app.automation.qt_service import RuntimeService
-from app.automation.recording import ActionRecorder
+from app.automation.recording import ActionRecorder, ScreenshotEvidence, MAX_SESSION_BYTES
 from app.devices.adb import AdbClient, ScreenInfo, validate_endpoint
 from app.devices.paths import adb_executable
 from app.devices.registry import DeviceRegistry
@@ -32,6 +32,12 @@ from app.ui.design import apply_theme, icon
 from app.ui.shell import WorkspaceShell
 from app.settings import create_store, integer, theme_name
 from app.host_metrics import HostMetrics
+from app.simulation.model import SimulationManager, is_simulation, LABEL as SIMULATION_LABEL
+from app.simulation.transport import SimulationTransport
+from app.simulation.project import create_project as create_demo_project
+from app.ui.simulation_panel import SimulationPanel
+from app.ui.recognition_inspector import RecognitionInspector
+from app.vision.ocr import TesseractOCR
 
 
 class JobSignals(QObject):
@@ -64,6 +70,11 @@ class StudioWindow(QMainWindow):
         self.adb = AdbClient(adb_executable(self.settings.value("adb_path", "")))
         self.capture = CaptureService(self.adb)
         self.registry = DeviceRegistry()
+        self.simulations = SimulationManager()
+        self.active_simulation = None
+        self._simulation_pending = set()
+        self._demo_projects = {}
+        self._demo_pending = False
         self.streams = StreamManager(self.adb)
         if configured_server := os.environ.get("STUDIO_SCRCPY_SERVER") or self.settings.value("scrcpy_server_path", ""):
             self.streams.server_path = Path(configured_server).expanduser()
@@ -116,6 +127,7 @@ class StudioWindow(QMainWindow):
         self.devices.setAccessibleName("Connected Android devices")
         self.devices.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.devices.currentItemChanged.connect(self._selection_changed)
+        self.devices.itemClicked.connect(lambda item: self.select_real_device(item.data(Qt.ItemDataRole.UserRole).serial) if self.active_simulation else None)
         self.preview = PhonePreview()
         self.preview.gesture.connect(self._gesture)
         self.preview.double_tap.connect(lambda x, y: self._double_tap(self.selected_serial(), self.preview, x, y))
@@ -128,6 +140,12 @@ class StudioWindow(QMainWindow):
         self.runtime.snapshot_changed.connect(self._runtime_snapshot)
         self.runtime.failure.connect(self.log)
         self.device_manager = DeviceManagerPanel(self.devices, self.settings)
+        self.simulation_panel = SimulationPanel()
+        self.device_manager.tabs.addTab(self.simulation_panel, "Simulation")
+        self.simulation_panel.start_requested.connect(self.start_demo)
+        self.simulation_panel.reset_requested.connect(self.reset_demo)
+        self.simulation_panel.stop_requested.connect(self.stop_demo)
+        self.simulation_panel.example_requested.connect(self.open_demo_example)
         self.device_manager.refresh_requested.connect(self.refresh_devices)
         self.device_manager.preview_requested.connect(self.open_preview)
         self.device_manager.capture_requested.connect(self.capture_region)
@@ -148,6 +166,7 @@ class StudioWindow(QMainWindow):
         self.visual_tools.asset_selected.connect(self.preview_asset)
         self.visual_tools.insert_requested.connect(self.insert_visual_command)
         self.visual_tools.test_requested.connect(self.test_asset)
+        self.visual_tools.inspect_requested.connect(self.inspect_recognition)
         self._dock("Screenshot & Visual Tools", "visual", self.visual_tools, Qt.DockWidgetArea.LeftDockWidgetArea)
         self.live_panel = LivePanel(self.preview)
         self.live_panel.start_requested.connect(self.start_live)
@@ -160,6 +179,7 @@ class StudioWindow(QMainWindow):
         self._dock("Phone previews · scrcpy / screenshot fallback", "phone", self.live_panel, Qt.DockWidgetArea.RightDockWidgetArea)
         self.execution_panel = ExecutionPanel(self.logs)
         self.execution_panel.run_selected.connect(lambda _: self._show_execution_line())
+        self.execution_panel.failure_selected.connect(self.inspect_run_failure)
         self._dock("Scripts and output", "events", self.execution_panel, Qt.DockWidgetArea.BottomDockWidgetArea)
         self.recorder_panel = RecorderPanel(self.recorder)
         self.recorder_panel.start_requested.connect(self.start_recording)
@@ -169,11 +189,13 @@ class StudioWindow(QMainWindow):
         self.recorder_panel.save_requested.connect(self.save_recording)
         self.recorder_panel.load_requested.connect(self.load_recording)
         self.recorder_panel.replay_requested.connect(self.replay_recording)
+        self.recorder_panel.convert_requested.connect(self.convert_recorded_tap)
         self._dock("Action Recorder", "recorder", self.recorder_panel, Qt.DockWidgetArea.BottomDockWidgetArea)
         self.editor.error.connect(self.log)
         self.editor.document_changed.connect(lambda _: self._update_title())
         self._build_actions()
         self.shell = WorkspaceShell(self)
+        self.shell.settings_panel.check_ocr_requested.connect(self.check_ocr)
         self.setCentralWidget(self.shell)
         self.device_manager.settings_requested.connect(lambda: self.show_workspace("settings"))
         self.editor.set_project_root(self.project_root)
@@ -189,6 +211,9 @@ class StudioWindow(QMainWindow):
         self.control_timer = QTimer(self)
         self.control_timer.timeout.connect(self._sync_controls)
         self.control_timer.start(150)
+        self.simulation_timer = QTimer(self)
+        self.simulation_timer.timeout.connect(self.update_simulations)
+        self.simulation_timer.start(150)
         self.host_metrics = HostMetrics()
         self.metrics_timer = QTimer(self)
         self.metrics_timer.timeout.connect(self._update_host_metrics)
@@ -271,6 +296,8 @@ class StudioWindow(QMainWindow):
         self.reset_stop_action = self._action(execution_menu, "Reset emergency stop", self.reset_emergency_stop)
         self.reset_stop_action.setEnabled(False)
         devices_menu = self.menuBar().addMenu("&Devices")
+        self._action(devices_menu, "Start Demo Session", self.start_demo, "Ctrl+Shift+D")
+        self._action(devices_menu, "Reset Demo", self.reset_demo)
         self._action(devices_menu, "Refresh devices", self.refresh_devices)
         self._action(devices_menu, "Diagnose Connection", self.diagnose_connection)
         self.actions["capture"] = self._action(devices_menu, "Capture image region…", self.capture_region, "Ctrl+Shift+C")
@@ -320,7 +347,7 @@ class StudioWindow(QMainWindow):
         self._action(help_menu, "Connection troubleshooting", self.diagnose_connection)
         self._action(help_menu, "Scripting capabilities", lambda: QMessageBox.information(self, "Alpha capabilities",
             "Available: Python image automation, Monaco, serial-bound workers, ADB/scrcpy previews, capture, recognition, diagnostics and studio-control recording.\n\n"
-            "Real phones and Windows still require hardware validation. Scheduling, debugger and OCR are not complete. See docs/ALPHA_STABILIZATION.md."))
+            "Offline simulation, image/color recognition and optional local Tesseract OCR are available. Real phones and Windows still require runtime validation. Scheduling and breakpoint debugging remain deferred. See docs/PHASE6_VALIDATION.md."))
 
     def log(self, message):
         self.logs.appendPlainText(time.strftime("%H:%M:%S ") + str(message))
@@ -337,6 +364,146 @@ class StudioWindow(QMainWindow):
             self.notify("Monaco is still loading. If it reports missing assets, run python tools/fetch_monaco.py.")
             return
         self.editor.insert(source)
+
+    def start_demo(self):
+        if self._closing or self._demo_pending:
+            return
+        self._demo_pending = True
+        scenario, delay = self.simulation_panel.options()
+        self.simulation_panel.status.setText("Creating an explicit offline session and a new demo project…")
+        root = Path(os.environ.get("STUDIO_DATA_DIR") or Path(QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppLocalDataLocation)) / "AndroidAutomationStudio") / "demo-projects"
+        def operation():
+            info = self.simulations.create(scenario, delay)
+            try:
+                project, script = create_demo_project(root, info.serial, scenario)
+            except Exception:
+                self.simulations.stop(info.serial)
+                raise
+            return info, project, script
+        def finished(result, error):
+            self._demo_pending = False
+            if error:
+                self.notify(f"Demo could not start: {error}")
+                return
+            info, project, script = result
+            self._demo_projects[info.serial] = project
+            self.shell.documents.add(script, script.read_text(encoding="utf-8"), project)
+            self.select_simulation(info.serial)
+            self.show_workspace("studio")
+            self.shell.reveal_preview()
+            self.simulation_panel.status.setText(f"{info.name} · {SIMULATION_LABEL}\nProject: {project}")
+            self.log(f"{SIMULATION_LABEL} · {info.serial} · {info.scenario}")
+        self._submit(operation, finished)
+
+    def open_demo_example(self):
+        serial = self.active_simulation
+        info = self.simulations.get(serial)
+        root = self._demo_projects.get(serial)
+        if not info or not root:
+            self.notify("Select an active demo before opening its example.")
+            return
+        self.open_script_path(root / "scripts" / (info.scenario + ".py"))
+        self.show_workspace("studio")
+
+    def select_simulation(self, serial):
+        info = self.simulations.get(serial)
+        if info is None or not info.available:
+            self.notify("This simulation is stopped. Start a new session explicitly.")
+            return
+        self.active_simulation = serial
+        self._preview_modes[serial] = "simulation"
+        self.preview.clear()
+        self._refresh_device_details()
+        self._show_execution_line()
+        self.update_simulations()
+        self._sync_controls()
+
+    def select_real_device(self, serial):
+        self.active_simulation = None
+        blocker = QSignalBlocker(self.devices)
+        row = next((row for row in range(self.devices.count()) if self.devices.item(row).data(Qt.ItemDataRole.UserRole).serial == serial), -1)
+        self.devices.setCurrentRow(row)
+        del blocker
+        self._selection_changed(self.devices.currentItem(), None)
+        self._sync_controls()
+
+    def reset_demo(self):
+        serial = self.active_simulation
+        if not serial or self._demo_pending:
+            self.notify("Select an active simulated session to reset.")
+            return
+        self.runtime.invalidate_device(serial)
+        self._connection_token(serial).set()
+        self.preview.clear()
+        if self.recorder.serial == serial and self.recorder.state != "stopped":
+            self.stop_recording("Simulation reset invalidated this recording connection")
+        self._demo_pending = True
+        scenario, delay = self.simulation_panel.options()
+        def finished(info, error):
+            self._demo_pending = False
+            if error:
+                self.notify(error)
+                return
+            self._connection_tokens[serial] = threading.Event()
+            self._preview_modes[serial] = "simulation"
+            self.simulation_panel.status.setText(f"Reset {info.name} · {info.scenario}; old scripts cancelled. Use Open scenario script for this example. Project assets were preserved.\n{SIMULATION_LABEL}")
+            self.update_simulations()
+            self._sync_controls()
+        self._submit(lambda: self.simulations.reset(serial, scenario, delay), finished)
+
+    def stop_demo(self):
+        serial = self.active_simulation
+        if not serial or self._demo_pending:
+            return
+        self.runtime.invalidate_device(serial)
+        self._connection_token(serial).set()
+        self._preview_modes[serial] = "stopped"
+        self.preview.clear()
+        if serial in self.live_panel.tiles:
+            self.live_panel.tiles[serial][1].clear()
+        if self.recorder.serial == serial and self.recorder.state != "stopped":
+            self.stop_recording("Simulation stopped")
+        self._demo_pending = True
+        def finished(result, error):
+            self._demo_pending = False
+            self.simulation_panel.status.setText(str(error) if error else "Demo disconnected. No physical device was changed; project files remain saved.")
+            self._sync_controls()
+        self._submit(lambda: self.simulations.stop(serial), finished)
+
+    def update_simulations(self):
+        if self._closing:
+            return
+        for info in self.simulations.snapshot():
+            serial = info.serial
+            if not info.available or serial in self._simulation_pending or self._preview_modes.get(serial) != "simulation":
+                continue
+            token = self._connection_token(serial)
+            if token.is_set():
+                continue
+            self._simulation_pending.add(serial)
+            transport = SimulationTransport(self.simulations.client(serial))
+            def finished(result, error, identity=serial, connection=token, name=info.name):
+                self._simulation_pending.discard(identity)
+                if connection.is_set() or self._preview_modes.get(identity) != "simulation":
+                    return
+                if error:
+                    self.log(error)
+                    return
+                frame, state = result
+                view = self.live_panel.tile(identity)
+                self.live_panel.tiles[identity][0].setTitle(name + " · SIMULATED")
+                if not view.property("controlsConnected"):
+                    view.gesture.connect(lambda start, end, ms, target=identity, widget=view: self._gesture_on(target, widget, start, end, ms))
+                    view.double_tap.connect(lambda x,y,target=identity,widget=view: self._double_tap(target, widget, x,y))
+                    view.setProperty("controlsConnected", True)
+                view.set_frame(frame)
+                self.live_panel.update_status(identity, SIMULATION_LABEL + " · " + state["screen"], self.selected_serial())
+                if identity == self.selected_serial():
+                    self.preview.set_frame(frame)
+                    self.live_panel.status.setText(f"{name} · SIMULATED · {state['screen']}")
+                    self.live_panel.status.setToolTip(identity + "\n" + SIMULATION_LABEL)
+                    self.live_panel.geometry_label.setText(f"Simulation {frame.width} × {frame.height} · {state['screen']} · {state['actions']} state actions")
+            self._submit(lambda client=transport: (client.frame(), client.client.state()), finished)
 
     def new_script(self):
         try:
@@ -449,11 +616,25 @@ class StudioWindow(QMainWindow):
         self.actions["stop"].setEnabled(active is not None)
         self.reset_stop_action.setVisible(self._emergency_latched)
         self.shell.sync_devices()
-        self.shell.welcome.setVisible(not any(device.available for device in self.registry.snapshot()))
+        self.shell.welcome.setVisible(not any(device.available for device in self.registry.snapshot())
+                                      and not any(info.available for info in self.simulations.snapshot()))
         self.live_panel.set_control_state(available, can_input, self.streams.status(serial).state if serial else "stopped")
         self.live_panel.start_all_action.setEnabled(any(device.available for device in self.registry.snapshot()))
         self.recorder_panel.set_control_state(can_input, self.recorder.state)
         self.visual_tools.set_control_state(available, self.editor.is_ready)
+        simulated = is_simulation(self._selected_identity())
+        self.shell.simulation_notice.setVisible(simulated)
+        self.simulation_panel.set_active(simulated and available and not self._demo_pending)
+        self.device_manager.reconnect_button.setEnabled(not simulated)
+        self.live_panel.start_button.setText("Resume demo" if simulated else "Start live")
+        self.live_panel.stop_button.setText("Pause" if simulated else "Stop")
+        self.live_panel.configure.setEnabled(not simulated)
+        self.live_panel.configure.setToolTip("Encoder quality applies to real scrcpy video. Demo previews are locally rendered state." if simulated else "Configure the next scrcpy stream")
+        if simulated:
+            self.live_panel.set_control_state(available, can_input, "streaming" if self._preview_modes.get(serial) == "simulation" else "stopped")
+            self.live_panel.start_all_action.setEnabled(False)
+            self.live_panel.fallback_action.setEnabled(False)
+            self.live_panel.quality.hide()
 
     def _update_host_metrics(self):
         sample = self.host_metrics.sample()
@@ -478,6 +659,9 @@ class StudioWindow(QMainWindow):
             callback(result, error)
 
     def selected_serial(self):
+        if self.active_simulation:
+            info = self.simulations.get(self.active_simulation)
+            return info.serial if info and info.available else None
         item = self.devices.currentItem()
         if item:
             device = item.data(Qt.ItemDataRole.UserRole)
@@ -555,6 +739,9 @@ class StudioWindow(QMainWindow):
 
     def _refresh_device_details(self):
         serial = self._selected_identity()
+        if is_simulation(serial):
+            self.device_manager.details.setText(SIMULATION_LABEL + "\n" + serial + "\nADB authorization does not apply.")
+            return
         self.device_manager.android_versions = self._android_versions
         self.device_manager.show_device(self.registry.get(serial) if serial else None,
                                         script=self.assignments.get(serial), screen=self._screen_info.get(serial))
@@ -581,6 +768,10 @@ class StudioWindow(QMainWindow):
 
     def diagnose_connection(self):
         self.show_workspace("devices")
+        if is_simulation(self._selected_identity()):
+            self.device_manager.tabs.setCurrentWidget(self.simulation_panel)
+            self.notify(SIMULATION_LABEL + ". Select a physical device for ADB diagnostics.")
+            return
         self.device_manager.show_diagnostics()
         if self._diagnostic_busy or self._closing:
             return
@@ -657,6 +848,9 @@ class StudioWindow(QMainWindow):
 
     def disconnect_device(self):
         serial = self._selected_identity()
+        if is_simulation(serial):
+            self.notify("Use Stop Demo for simulation; this button only disconnects physical Wi-Fi endpoints.")
+            return
         if self._network_pending or self._closing:
             return
         try:
@@ -685,7 +879,11 @@ class StudioWindow(QMainWindow):
             if answer != QMessageBox.StandardButton.Yes:
                 return
         try:
-            self.recorder.start(serial, self.registry.get(serial).generation)
+            self.recorder.start(serial, self._device_record(serial).generation)
+            frame=self.preview.frame
+            if frame and frame.serial==serial:
+                geometry=(getattr(frame,"source_width",frame.width),getattr(frame,"source_height",frame.height))
+                self.recorder.screen_size=geometry if all(type(v)is int and v>0 for v in geometry) else None
         except ValueError as error:
             self.log(str(error))
             return
@@ -695,7 +893,7 @@ class StudioWindow(QMainWindow):
     def pause_recording(self):
         try:
             if self.recorder.state == "paused":
-                current = self.registry.get(self.recorder.serial)
+                current = self._device_record(self.recorder.serial)
                 if not current or not current.available:
                     raise ValueError("Recording phone is unavailable")
                 self.recorder.resume(current.serial, current.generation)
@@ -739,8 +937,8 @@ class StudioWindow(QMainWindow):
             if self.recorder_panel.table.rowCount() and QMessageBox.question(self, "Open recording", "Replace the current timeline? Save or insert it into a script first to keep it.") != QMessageBox.StandardButton.Yes:
                 return
             file = Path(path)
-            if file.stat().st_size > 1_000_000:
-                raise ValueError("Recorder sessions must be smaller than 1 MB")
+            if file.stat().st_size > MAX_SESSION_BYTES:
+                raise ValueError("Recorder sessions must be smaller than 10 MB")
             self.recorder.load_session(file.read_text(encoding="utf-8"))
             self.recorder_panel.refresh(reset=True)
             self.notify("Recording opened without executing it. Select a phone and verify screen geometry before replay.")
@@ -754,7 +952,89 @@ class StudioWindow(QMainWindow):
             self.notify(error)
             return
         serial = self.selected_serial()
-        self._approve_and_run([(serial, source, "<editor>", self.project_root)])
+        if not serial:
+            self.notify("Select a replay target first."); return
+        token=self._connection_token(serial)
+        def checked(frame,error):
+            if error or token.is_set() or self.selected_serial()!=serial:
+                self.notify(error or "Replay target changed before approval"); return
+            expected=self.recorder.screen_size
+            if expected and expected!=(frame.width,frame.height):
+                answer=QMessageBox.warning(self,"Recording geometry changed",
+                    f"Recorded at {expected[0]} × {expected[1]}, selected target is {frame.width} × {frame.height}. Coordinates are not automatically rescaled. Replay anyway?",
+                    QMessageBox.StandardButton.Yes|QMessageBox.StandardButton.Cancel,QMessageBox.StandardButton.Cancel)
+                if answer!=QMessageBox.StandardButton.Yes:
+                    return
+            self._approve_and_run([(serial, source, "<editor>", self.project_root)])
+        self._submit(lambda:self.capture_device(serial),checked)
+
+    def convert_recorded_tap(self):
+        panel=self.recorder_panel
+        row=panel.table.currentRow()
+        if self.recorder.state!="stopped" or row<0:
+            self.notify("Stop recording and select a coordinate tap first."); return
+        item=panel.table.item(row,0)
+        metadata=item.data(Qt.ItemDataRole.UserRole) or {}
+        evidence=metadata.get("evidence")
+        if evidence is None:
+            self.notify("No pre-tap screenshot exists for this step. Record with capture enabled or capture a target manually."); return
+        import ast
+        try:
+            call=ast.parse(item.text()).body[0].value
+            if not isinstance(call,ast.Call) or not isinstance(call.func,ast.Name) or call.func.id!="tap" or len(call.args)!=2:
+                raise ValueError("Only coordinate tap(x,y) steps can be converted")
+            x,y=(ast.literal_eval(argument) for argument in call.args)
+            if any(type(value)is not int for value in (x,y)) or not 0<=x<evidence.size[0] or not 0<=y<evidence.size[1]:
+                raise ValueError("Choose a tap with explicit integer coordinates")
+        except (ValueError,SyntaxError,AttributeError,IndexError) as error:
+            self.notify(error); return
+        root=self.project_root
+        original=item.text()
+        def loaded(image,error):
+            if error or image.isNull():
+                self.notify(error or "Recorded screenshot could not be decoded"); return
+            directory=root/"images"
+            try:
+                from app.projects.library import AssetLibrary
+                directory=AssetLibrary(root).image_root; directory.mkdir(exist_ok=True)
+            except (ValueError,OSError) as error:
+                self.notify(error); return
+            dialog=CaptureDialog(image,evidence.serial,parent=self,save_directory=directory)
+            dialog.instructions.setText((SIMULATION_LABEL+"\n" if is_simulation(evidence.serial) else "Recorded pre-tap screenshot.\n")+"Crop a real target around the tap, save it inside this project, then the selected step becomes image-based.")
+            left,top=max(0,x-40),max(0,y-25)
+            from app.vision.matching import Region
+            dialog.select_region(Region(left,top,min(80,image.width()-left),min(50,image.height()-top)))
+            def saved(path,region):
+                from app.projects.library import AssetLibrary
+                from app.automation.recording import image_target_code
+                try:
+                    asset=AssetLibrary(root).resolve(path)
+                    reference=asset.relative_to(root).as_posix()
+                    code=image_target_code(original,region,reference)
+                except (OSError,ValueError) as error:
+                    self.notify(error); return
+                def verify():
+                    from app.ui.visual_tools import load_asset
+                    from app.ui.capture_dialog import image_rgb
+                    from app.vision.matching import find_all
+                    pixels=image_rgb(load_asset(root,reference))
+                    # Reject untextured/invalid crops using the real matcher contract.
+                    find_all(pixels,pixels,max_results=1)
+                def verified(result,error):
+                    if error:
+                        self.notify("Image saved; step was not replaced: "+str(error)); return
+                    if self.project_root!=root or row>=panel.table.rowCount() or panel.table.item(row,0) is not item or item.text()!=original:
+                        self.notify("Timeline/project changed; image saved but step was not replaced"); return
+                    item.setText(code)
+                    self._asset_saved(path,region)
+                    panel.step_info.setText("Selected step now uses a saved image target: "+reference)
+                self._submit(verify,verified)
+            self._capture_dialogs.add(dialog)
+            dialog.asset_saved.connect(saved)
+            def finished(result):
+                self._capture_dialogs.discard(dialog);dialog.deleteLater()
+            dialog.finished.connect(finished);dialog.show()
+        self._submit(lambda:QImage.fromData(evidence.png,"PNG"),loaded)
 
     def refresh_assets(self):
         if self._closing:
@@ -808,10 +1088,53 @@ class StudioWindow(QMainWindow):
             return
         self.capture_region(template_reference=reference, match_options=options)
 
+    def check_ocr(self):
+        panel = self.shell.settings_panel
+        executable = panel.ocr_path.text().strip() or None
+        panel.ocr_status.setText("Checking configured local OCR engine off the GUI thread…")
+        self._submit(lambda: TesseractOCR(executable).status(),
+                     lambda result,error: panel.ocr_status.setText(error or result))
+
+    def inspect_recognition(self):
+        serial = self.selected_serial()
+        root = self.project_root
+        script = self.path
+        try:
+            reference = self.visual_tools.selected_reference()
+        except ValueError:
+            reference = ""
+        def show(image,error,source):
+            if error:
+                self.notify(error); return
+            dialog = RecognitionInspector(image,source,root,ocr_executable=self.settings.value("ocr_executable", "") or None,
+                                          reference=reference,parent=self)
+            self._capture_dialogs.add(dialog)
+            dialog.code_ready.connect(lambda code: self.insert_code(code) if self.path == script else self.notify("Document changed; reopen the inspector before inserting code."))
+            def finished(result):
+                self._capture_dialogs.discard(dialog); dialog.deleteLater()
+            dialog.finished.connect(finished)
+            dialog.show()
+        if serial:
+            token = self._connection_token(serial)
+            def operation():
+                frame = self.capture_device(serial)
+                if token.is_set():
+                    raise RuntimeError("Connection changed during inspector capture")
+                return QImage.fromData(frame.png, "PNG")
+            source = SIMULATION_LABEL if is_simulation(serial) else "ADB screenshot · " + serial
+            self._submit(operation,lambda result,error: show(result,error,source))
+        else:
+            filename,_ = QFileDialog.getOpenFileName(self,"Open screenshot for offline recognition",str(root),"Images (*.png *.jpg *.jpeg *.bmp *.webp)")
+            if filename:
+                path = Path(filename).resolve()
+                self._submit(lambda: load_asset(path.parent,path.name),lambda result,error: show(result,error,"LOCAL SCREENSHOT — no device actions · " + path.name))
+
     def _connection_token(self, serial):
         return self._connection_tokens.setdefault(serial, threading.Event())
 
     def _selected_identity(self):
+        if self.active_simulation:
+            return self.active_simulation
         item = self.devices.currentItem()
         return item.data(Qt.ItemDataRole.UserRole).serial if item else None
 
@@ -841,16 +1164,32 @@ class StudioWindow(QMainWindow):
                 # Explicit user restart is required; no script/input replay.
                 self._preview_modes[device.serial] = "stopped"
 
+    def _device_record(self, serial):
+        return self.simulations.get(serial) if is_simulation(serial) else self.registry.get(serial) if serial else None
+
+    def _transport(self, serial):
+        return SimulationTransport(self.simulations.client(serial)) if is_simulation(serial) else self.adb
+
+    def capture_device(self, serial):
+        return self._transport(serial).frame() if is_simulation(serial) else self.capture.capture(serial)
+
     def _device_available(self, serial):
-        device = self.registry.get(serial) if serial else None
+        device = self._device_record(serial)
         return bool(device and device.available)
 
     def _selection_changed(self, current, previous):
+        # A real row selection is an explicit return to the physical transport.
+        if current is not None:
+            self.active_simulation = None
         self.preview.clear()
         self._refresh_device_details()
         self.device_manager.set_available(bool(self.selected_serial()), self.busy(self.selected_serial()))
         self._show_execution_line()
         serial = self.selected_serial()
+        if is_simulation(serial):
+            self.live_panel.status.setText(SIMULATION_LABEL)
+            self.update_simulations()
+            return
         self.live_panel.status.setText(f"{serial or 'No available device'} · {self._preview_modes.get(serial, 'ADB screenshot fallback')}")
         self.live_panel.geometry_label.setText("Resolution / orientation: awaiting current device frame")
         if serial and self._device_available(serial):
@@ -895,7 +1234,7 @@ class StudioWindow(QMainWindow):
                 except ValueError as exception:
                     self.preview.clear()
                     self.log(str(exception))
-        self._submit(lambda: self.capture.capture(serial), finished)
+        self._submit(lambda: self.capture_device(serial), finished)
 
     def _control(self, serial, operation, *, recorded=None, duration=0):
         if self._emergency_latched:
@@ -907,22 +1246,35 @@ class StudioWindow(QMainWindow):
         self.pending_controls.add(serial)
         cancelled = self._manual_cancel
         connection = self._connection_token(serial)
-        generation = self.registry.get(serial).generation
+        generation = self._device_record(serial).generation
         ticket = self.recorder.ticket(serial, generation, recorded, duration) if recorded else None
+        capture_evidence = bool(ticket and recorded and recorded.startswith("tap(") and self.recorder_panel.capture_evidence.isChecked())
         def dispatch():
-            current = self.registry.get(serial)
+            current = self._device_record(serial)
             if cancelled.is_set() or connection.is_set() or not current or not current.available or current.generation != generation:
                 raise RuntimeError("Control command cancelled by emergency stop or changed device connection")
+            evidence=None
+            if capture_evidence:
+                try:
+                    snapshot=self.capture_device(serial)
+                    evidence=ScreenshotEvidence(serial,snapshot.png,(snapshot.width,snapshot.height))
+                except Exception:
+                    # Input remains usable; conversion clearly reports missing evidence.
+                    evidence=None
+                current=self._device_record(serial)
+                if cancelled.is_set() or connection.is_set() or not current or not current.available or current.generation!=generation:
+                    raise RuntimeError("Control cancelled while capturing step evidence")
             started = time.monotonic()
             operation()
-            return started
+            return (started,evidence) if ticket else started
         def finished(result, error):
             self.pending_controls.discard(serial)
             # ADB acknowledgment does not prove application-level success; a
             # changed connection invalidates the recording completion as well.
-            current = self.registry.get(serial)
+            current = self._device_record(serial)
             failure = error or ("Device connection changed" if connection.is_set() or not current or current.generation != generation else None)
-            self.recorder.complete(ticket, result, failure)
+            started,evidence = result if ticket and result is not None else (result,None)
+            self.recorder.complete(ticket, started, failure, evidence=evidence)
             self.recorder_panel.refresh()
             self.log(failure or f"Control command completed on {serial}")
         self._submit(dispatch, finished)
@@ -930,7 +1282,7 @@ class StudioWindow(QMainWindow):
     def _key(self, key):
         serial = self.selected_serial()
         code = {"HOME": "home()", "BACK": "back()"}.get(key)
-        self._control(serial, lambda: self.adb.key(serial, key), recorded=code)
+        self._control(serial, lambda: self._transport(serial).key(serial, key), recorded=code)
 
     def _gesture(self, start, end, milliseconds):
         serial = self.selected_serial()
@@ -942,12 +1294,12 @@ class StudioWindow(QMainWindow):
             self.log("Preview is stale. Capture a fresh frame before sending input.")
             return
         if start == end and milliseconds < 500:
-            self._control(serial, lambda: self.adb.tap(serial, *start), recorded=f"tap({start[0]}, {start[1]})")
+            self._control(serial, lambda: self._transport(serial).tap(serial, *start), recorded=f"tap({start[0]}, {start[1]})")
         else:
             seconds = milliseconds / 1000
             code = (f"longPress(Location({start[0]}, {start[1]}), duration={seconds})" if start == end
                     else f"swipe({start[0]}, {start[1]}, {end[0]}, {end[1]}, duration={seconds})")
-            self._control(serial, lambda: self.adb.swipe(serial, *start, *end, duration_ms=milliseconds),
+            self._control(serial, lambda: self._transport(serial).swipe(serial, *start, *end, duration_ms=milliseconds),
                           recorded=code, duration=seconds)
 
     def _double_tap(self, serial, preview, x, y):
@@ -958,14 +1310,18 @@ class StudioWindow(QMainWindow):
         cancelled = self._manual_cancel
         connection = self._connection_token(serial)
         def operation():
-            self.adb.tap(serial, x, y)
+            self._transport(serial).tap(serial, x, y)
             if cancelled.wait(0.12) or connection.is_set() or not self._device_available(serial):
                 raise RuntimeError("Second tap cancelled")
-            self.adb.tap(serial, x, y)
+            self._transport(serial).tap(serial, x, y)
         self._control(serial, operation, recorded=f"doubleClick(Location({x}, {y}), interval=0.12)", duration=.12)
 
     def start_live(self, checked=False, *, serial=None):
         serial = serial or self.selected_serial()
+        if is_simulation(serial):
+            self._preview_modes[serial] = "simulation"
+            self.update_simulations()
+            return
         if self._closing or not self._device_available(serial):
             self.log("Select an authorized connected phone to start video.")
             return
@@ -992,6 +1348,10 @@ class StudioWindow(QMainWindow):
 
     def stop_live(self):
         serial = self._selected_identity()
+        if is_simulation(serial):
+            self._preview_modes[serial] = "stopped"
+            self.preview.clear()
+            return
         if serial:
             self.streams.stop(serial)
             self._preview_modes[serial] = "stopped"
@@ -1004,6 +1364,9 @@ class StudioWindow(QMainWindow):
         serial = self.selected_serial()
         if not serial:
             self.log("Select an authorized phone first.")
+            return
+        if is_simulation(serial):
+            self.start_live(serial=serial)
             return
         self.stop_live()
         self._preview_modes[serial] = "screenshot"
@@ -1064,7 +1427,7 @@ class StudioWindow(QMainWindow):
         def current_image():
             if token.is_set() or not self._device_available(serial):
                 raise RuntimeError("Device connection changed. Reconnect and capture again.")
-            captured = self.capture.capture(serial)
+            captured = self.capture_device(serial)
             if token.is_set():
                 raise RuntimeError("Device disconnected during capture")
             image = QImage.fromData(captured.png, "PNG")
@@ -1097,6 +1460,7 @@ class StudioWindow(QMainWindow):
             dialog = CaptureDialog(image, serial, parent=self, test_frame_provider=current_image,
                                    script_directory=script.parent if script else None,
                                    save_directory=image_root, template_image=template)
+            dialog.preprocessing.setCurrentText(self.visual_tools.preprocess.currentText())
             if match_options is not None:
                 threshold, scales, offset, region = match_options
                 dialog.threshold.setValue(threshold)
@@ -1176,7 +1540,7 @@ class StudioWindow(QMainWindow):
             def operation():
                 if token.is_set():
                     raise RuntimeError("Capture cancelled: device connection changed")
-                frame = self.capture.capture(serial)
+                frame = self.capture_device(serial)
                 if token.is_set():
                     raise RuntimeError("Device disconnected during capture; screenshot was not saved")
                 self._atomic_write(Path(path), frame.png)
@@ -1266,6 +1630,8 @@ class StudioWindow(QMainWindow):
         self._approve_and_run([(serial, self.editor.source, str(self.path or "<editor>"), self.project_root)])
 
     def _selected_phones(self):
+        if self.active_simulation:
+            return [self.selected_serial()] if self.selected_serial() else []
         return [item.data(Qt.ItemDataRole.UserRole).serial for item in self.devices.selectedItems()
                 if item.data(Qt.ItemDataRole.UserRole).available]
 
@@ -1284,7 +1650,8 @@ class StudioWindow(QMainWindow):
             path = Path(filename).resolve()
             self.assignments[serial] = path
             self.log(f"Assigned {path} to {serial}. Running still requires explicit trust approval.")
-            self.devices.currentItem().setToolTip(f"Assigned script: {path}")
+            if not is_simulation(serial):
+                self.devices.currentItem().setToolTip(f"Assigned script: {path}")
             self._refresh_device_details()
 
     def run_assigned_scripts(self):
@@ -1337,8 +1704,12 @@ class StudioWindow(QMainWindow):
                     self.preview.cancel_input()
                 if serial in self.live_panel.tiles:
                     self.live_panel.tiles[serial][1].cancel_input()
-                request_id = self.runtime.start(source, serial, trusted=True, backend="adb",
-                    adb_executable=self.adb.executable, script_id=script_id, project_root=str(root))
+                simulation = is_simulation(serial)
+                options = {"simulation_config": self.simulations.config(serial)} if simulation else {}
+                if configured_ocr := self.settings.value("ocr_executable", ""):
+                    options["ocr_config"] = {"executable": configured_ocr}
+                request_id = self.runtime.start(source, serial, trusted=True, backend="simulation" if simulation else "adb",
+                    adb_executable=self.adb.executable, script_id=script_id, project_root=str(root), **options)
                 self.pending_runs[request_id] = serial
                 self._request_documents[request_id] = {"source": source, "script_id": script_id, "project_root": str(root)}
                 self.log(f"Queued run request {request_id} on {serial}")
@@ -1410,8 +1781,23 @@ class StudioWindow(QMainWindow):
             self.log(f"[{event.get('serial')} / {Path(event.get('script_id', '')).name}] {event.get('text', '').rstrip()}")
         elif event.get("event") == "error":
             self.log(f"[{event.get('serial')}] {event.get('error_type')}: {event.get('message')}\n{event.get('traceback', '')}")
+            if failure := event.get("failure"):
+                self.log(f"{failure['category']} · {failure['advice']}")
         else:
             self.log(json.dumps(event, ensure_ascii=False))
+
+    def inspect_run_failure(self, run_id):
+        event = self.execution_panel.failures.get(run_id)
+        document = self._run_documents.get(run_id)
+        if not event or not document:
+            self.notify("No source-linked failure is available for this run."); return
+        line = event.get("source_line")
+        if (type(line) is not int or line < 1 or event.get("source_path") != document["script_id"]
+                or str(self.path or "<editor>") != document["script_id"] or self.editor.source != document["source"]):
+            self.notify("Failure refers to another file or an older source snapshot. Open the matching unedited script and inspect the traceback; your current edits were preserved."); return
+        self.show_workspace("studio")
+        self.editor.reveal_line(line)
+        self.notify(self.execution_panel.failure_detail(event))
 
     def _runtime_snapshot(self, states):
         self.run_states = list(states)
@@ -1469,6 +1855,7 @@ class StudioWindow(QMainWindow):
         self.shell.save()
         self.control_timer.stop()
         self.metrics_timer.stop()
+        self.simulation_timer.stop()
         self.settings.sync()
         runtime_closed = self.runtime.close(timeout=0)
         streams_closed = self.streams.close(timeout=0)
@@ -1476,6 +1863,7 @@ class StudioWindow(QMainWindow):
             event.ignore()
             QTimer.singleShot(100, self.close)
             return
+        self.simulations.close()
         self.editor.shutdown()
         self._shutdown_complete = True
         event.accept()
