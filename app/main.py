@@ -18,7 +18,7 @@ def diagnostics() -> dict:
     server = Path(os.environ.get("STUDIO_SCRCPY_SERVER") or Path(__file__).resolve().parents[1] / ".tools/scrcpy-server-v3.1")
     server_verified = server.is_file() and server.stat().st_size <= 2_000_000 and hashlib.sha256(server.read_bytes()).hexdigest() == SERVER_SHA256
     from app.automation.api import API_METHOD_NAMES
-    return {"phase": "foundational-python-engine", "platform": platform.platform(), "python": platform.python_version(),
+    return {"phase": "device-manager-visual-tools", "platform": platform.platform(), "python": platform.python_version(),
             "dependencies": {name: importlib.metadata.version(name) for name in
                              ("PySide6", "numpy", "opencv-python-headless", "av")},
             "adb": shutil.which(adb_executable()),
@@ -27,6 +27,9 @@ def diagnostics() -> dict:
             "scrcpy_server_version": "3.1", "scrcpy_server_verified": server_verified,
             "embedded_scrcpy": "implemented; hardware acceptance unverified",
             "automation_commands": list(API_METHOD_NAMES), "script_pause_resume": True,
+            "workspaces": ["Script Studio", "Device Manager", "Screenshot & Visual Tools", "Action Recorder"],
+            "recorder": "acknowledged studio controls only; session timeline",
+            "template_scales": "explicit 1–16 values in [0.1, 4]; default 1.0",
             "windows_release": "not built"}
 
 

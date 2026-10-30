@@ -64,7 +64,7 @@ class EditorWidget(QWidget):
         self.bridge.changed.connect(self._on_change)
         self.bridge.failed.connect(self._on_error)
         self.view.loadFinished.connect(self._loaded)
-        layout.addWidget(self.view)
+        layout.addWidget(self.view, stretch=1)
         if not (EDITOR_ROOT / "vendor/vs/loader.js").is_file():
             self._on_error("Monaco assets missing. Run python tools/fetch_monaco.py.")
         else:

@@ -1,5 +1,8 @@
 # Phase 0 validation report
 
+Latest increment: [Device Manager and Visual Tools validation](DEVICE_MANAGER_VISUAL_TOOLS.md).
+The report below remains the historical Phase 0 record.
+
 Historical baseline: the next device/video/capture increment is reported in
 [DEVICE_INTEGRATION.md](DEVICE_INTEGRATION.md). Statements below describe Phase 0,
 including features that were subsequently implemented.

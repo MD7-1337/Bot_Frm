@@ -27,6 +27,6 @@ def api_catalog() -> list[dict]:
     result = [_entry(name, getattr(Device, name), "function", "device") for name in API_METHOD_NAMES]
     for model in (Pattern, Region, Location, Offset, Match, Screen):
         result.append(_entry(model.__name__, model, "type"))
-    for name in ("similar", "targetOffset", "inRegion"):
+    for name in ("similar", "targetOffset", "inRegion", "atScales"):
         result.append(_entry(name, getattr(Pattern, name), "method", "Pattern"))
     return result

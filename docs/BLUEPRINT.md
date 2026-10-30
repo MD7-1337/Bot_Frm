@@ -2,6 +2,11 @@
 
 Version 0.1 · 2026-10-29 · targets Windows 10/11 x64
 
+Current GUI/recognition/recorder increment: [DEVICE_MANAGER_VISUAL_TOOLS.md](DEVICE_MANAGER_VISUAL_TOOLS.md).
+Device Manager and Visual Tools now have visible navigation, with an initial
+studio-control recorder and explicit multi-scale matching. Hardware/Windows,
+full recorder, OCR and other later acceptance gates remain outstanding.
+
 2026-10-30 update: the foundational scripting API, pause/resume and editor API
 assistance are now implemented. Their actual contract is in
 [SCRIPTING_API.md](SCRIPTING_API.md) and evidence in

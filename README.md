@@ -8,11 +8,14 @@ For the current implementation and hardware checklist, read [device integration]
 
 The current [scripting API reference](docs/SCRIPTING_API.md) defines every implemented command and error. The [scripting implementation report](docs/SCRIPTING_ENGINE.md) records source changes, actual checks and remaining gates.
 
+The latest [Device Manager and Visual Tools report](docs/DEVICE_MANAGER_VISUAL_TOOLS.md) explains workspace navigation, Wi-Fi connections, the image library, explicit scale matching and the studio-control recorder, including how to test the feature branch before merging.
+
 The original [product specification](docs/PRODUCT_SPECIFICATION.md) is retained for requirement traceability.
 
 ## What works in this increment
 
 - PySide6 dockable workbench with layout restoration, script open/atomic save, and unsaved-change prompts.
+- Visible Device Manager, Screenshot & Visual Tools and Action Recorder panels, with keyboard navigation, saved names/groups, endpoint-scoped Wi-Fi connect/pair/disconnect, and a browsable project image library.
 - Locally bundled Monaco in Qt WebEngine with a restricted QWebChannel bridge, generated API completion/signatures/docs, actual image hover thumbnails, missing-image warnings and execution-line highlighting.
 - Serial-specific ADB discovery, connection generations, PNG capture, measured resolution/optional rotation, tap/double-tap/hold/swipe/key controls, and explicit offline/unauthorized/disconnected/unknown states.
 - Embedded **scrcpy 3.1 H.264 video** transport, actual PyAV decoding, and independent latest-frame Qt previews with adjustable encoder FPS/bitrate/size. Protocol/codec/local-socket fixtures pass; actual Android streaming remains unverified.
@@ -21,11 +24,12 @@ The original [product specification](docs/PRODUCT_SPECIFICATION.md) is retained 
 - All requested foundational touch, recognition, timing, Android and screen commands, with immutable target objects and project-contained image lookup.
 - Independent spawned workers, normal Python/imports/main guards, bounded JSON IPC, per-device leases/generations, trust approval, cancellable waits, pause/resume/stop, tracebacks and an asynchronous Qt service.
 - Shared-source and per-phone file assignments with independent contexts, run status and output/error views.
-- Tested OpenCV template matching with regions, full-frame coordinates, scores and overlap suppression.
+- Tested OpenCV template matching with regions, full-frame coordinates, scores, explicit `Pattern.atScales(...)` and cross-scale overlap suppression.
+- A serial-bound recorder of acknowledged studio controls, editable/reorderable Python timeline and normal trusted-worker replay. It does not record touches made outside the studio.
 
 The workbench always uses the real ADB backend. Mock devices are confined to explicitly identified tests/examples. Missing dependencies/devices produce actionable errors.
 
-**Not implemented yet:** general Python language service, full project backup/import/export management, OCR/UI-element APIs, recorder, breakpoint debugger, scheduler, SQLite business persistence, updater, installer or portable Windows build. See the milestone gates; menu pages are not used to imply those features exist.
+**Not implemented yet:** general Python language service, full project backup/import/export management, OCR/UI-element APIs, advanced recorder persistence/image conversion, breakpoint debugger, scheduler, SQLite business persistence, updater, installer or portable Windows build. See the milestone gates; menu pages are not used to imply those features exist.
 
 ## Development setup
 
@@ -62,9 +66,11 @@ Core editing and worker execution do not require internet after setup. Physical 
 1. Enable Developer Options and USB debugging on a phone you are authorized to control.
 2. Connect USB; accept the phone's debugging authorization prompt. Windows may require the manufacturer's USB driver.
 3. Select **Refresh devices**. Unauthorized/offline entries are shown and cannot be controlled.
+   Open **Workspaces → Device Manager** (`Ctrl+2`) for connection guidance, saved names/groups and Wi-Fi controls. For Android 11+ Wireless debugging, pair using its pairing port/code, then connect using its separate connection port. USB disconnection is physical; Wi-Fi Disconnect targets only the selected host:port.
 4. Select an authorized device, choose encoder settings and **Start live**. **Start all connected** requests independent streams (default cap: four). Stop a stream before changing its settings. Use **Screenshot fallback** explicitly if streaming is unavailable; failed video is never presented as a live connection.
 5. Tap, double tap, hold or drag inside a preview; letterboxes do not send input. Background tiles target their own serial. Home and Back target the selected row. A short single tap waits through Qt's double-click interval to distinguish it from a double tap. Drag is a supported ADB press/move/release swipe, not a continuous raw-touch path.
 6. Choose **File → Choose project image library…** and select the project root. **Capture image region…** (`Ctrl+Shift+C`) freezes an original-resolution PNG while video continues. Save defaults to `project/images`; insertion generates a plain Python path assignment followed by `click(image_path)`. Test Match shows scores and tap positions without sending input.
+   **Screenshot & Visual Tools** (`Ctrl+3`) also browses existing targets, inserts configured Pattern commands and tests them on a new phone capture. **Capture PNG…** always saves a new original-resolution screenshot, including when video is scaled.
 7. Edit a script using the API below, then F5/**Run trusted script…** on the current phone. Ctrl+F5 runs the same source independently on selected device rows. **Execution → Assign Python file… / Run assigned files…** supports different source files per phone. Approve the exact source snapshots and serials; manual controls for those phones are blocked while workers own them.
 8. Use **Emergency stop** or `Ctrl+Shift+F12` to latch stopping; reset explicitly before allowing new input/runs. Disconnect/unknown states invalidate only that phone's queued work and workers. Reconnect and start again explicitly; old work is not replayed. An already-sent Android command cannot be undone.
 
