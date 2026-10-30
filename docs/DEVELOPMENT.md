@@ -40,6 +40,12 @@ Tests use fixtures to cover errors consistently. Keep hardware tests explicitly 
 
 ## Troubleshooting
 
+The current UI changes, recorder contracts, evidence and real-device checklist
+are in [DEVICE_MANAGER_VISUAL_TOOLS.md](DEVICE_MANAGER_VISUAL_TOOLS.md).
+Use Workspaces (`Ctrl+1`–`Ctrl+4`) to reopen hidden tools, or View → Reset layout.
+Wi-Fi connection management uses explicit host:port arguments without `-s`;
+screen/input/application operations continue to require an exact serial.
+
 | Symptom | Diagnosis/action |
 | --- | --- |
 | Monaco assets missing | Run `python tools/fetch_monaco.py` using the environment Python. Keep its digest check enabled. |

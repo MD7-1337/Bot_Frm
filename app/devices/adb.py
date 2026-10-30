@@ -1,13 +1,14 @@
 """Bounded, serial-specific ADB operations without a host shell.
 
-All device operations require a verified connection serial. ADB's global
-``devices`` and ``version`` operations are the only calls without ``-s``.
+Device operations require a verified connection serial. Discovery/version and
+explicit endpoint-scoped network connection management do not use ``-s``.
 This adapter does not claim that USB permission or authorization is available.
 """
 
 from __future__ import annotations
 
 import math
+import ipaddress
 import re
 import struct
 import subprocess
@@ -107,6 +108,22 @@ def validate_serial(serial: str) -> str:
     if not isinstance(serial, str) or not re.fullmatch(r"[A-Za-z0-9_\[\]][A-Za-z0-9_.:\[\]-]{0,255}", serial):
         raise ValueError("Select a valid ADB serial from device discovery.")
     return serial
+
+
+def validate_endpoint(endpoint: str) -> str:
+    """Require one explicit host:port (or [IPv6]:port), never ADB's all target."""
+    if not isinstance(endpoint, str) or len(endpoint) > 255:
+        raise ValueError("Use an explicit host:port, for example 192.168.1.20:5555")
+    match = re.fullmatch(r"(\[[0-9A-Fa-f:]+\]|[A-Za-z0-9][A-Za-z0-9.-]*):([0-9]{1,5})", endpoint)
+    if not match or not 1 <= int(match[2]) <= 65535:
+        raise ValueError("Use an explicit host:port with a port between 1 and 65535")
+    host = match[1]
+    if host.startswith("["):
+        ipaddress.IPv6Address(host[1:-1])
+    elif any(not label or len(label) > 63 or label.startswith("-") or label.endswith("-")
+             for label in host.split(".")):
+        raise ValueError("Invalid connection hostname")
+    return endpoint
 
 
 def _coordinate(value: int) -> str:
@@ -212,6 +229,36 @@ class AdbClient:
 
     def version(self) -> str:
         return self._run(["version"]).decode("utf-8", errors="replace").strip()
+
+    def connect(self, endpoint: str) -> str:
+        """Connect one already-enabled Android TCP transport; discovery verifies state."""
+        endpoint = validate_endpoint(endpoint)
+        output = self._run(["connect", endpoint]).decode("utf-8", errors="replace").strip()
+        if output not in (f"connected to {endpoint}", f"already connected to {endpoint}"):
+            raise AdbError(f"ADB did not confirm connection to {endpoint}. Check Wireless debugging and the connection port.")
+        return f"Connected transport {endpoint}; refresh discovery to verify authorization."
+
+    def pair(self, endpoint: str, code: str) -> str:
+        """Pair Android 11+ Wireless debugging; the pairing port differs from connection."""
+        endpoint = validate_endpoint(endpoint)
+        if not isinstance(code, str) or re.fullmatch(r"[0-9]{6}", code) is None:
+            raise ValueError("Wireless debugging requires a six-digit pairing code")
+        try:
+            output = self._run(["pair", endpoint, code]).decode("utf-8", errors="replace").strip()
+        except AdbError:
+            # Pairing output from an arbitrary ADB build must not expose its code.
+            raise AdbError("ADB pairing failed. Check the pairing port/code and try again.") from None
+        if re.match(r"^Successfully paired to " + re.escape(endpoint) + r"(?:\s|$)", output) is None:
+            raise AdbError("ADB did not confirm pairing. Check the pairing port/code and try again.")
+        return f"Paired with {endpoint}; connect using the separate Wireless debugging connection port."
+
+    def disconnect(self, endpoint: str) -> str:
+        """Disconnect exactly one network endpoint; USB and disconnect-all are refused."""
+        endpoint = validate_endpoint(endpoint)
+        output = self._run(["disconnect", endpoint]).decode("utf-8", errors="replace").strip()
+        if output != f"disconnected {endpoint}":
+            raise AdbError(f"ADB did not confirm disconnection of {endpoint}.")
+        return f"Disconnected {endpoint}"
 
     def devices(self) -> list[DeviceInfo]:
         result: list[DeviceInfo] = []

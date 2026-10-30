@@ -1,5 +1,9 @@
 # Delivery phases, gates and test strategy
 
+Latest increment: [Device Manager and Visual Tools](DEVICE_MANAGER_VISUAL_TOOLS.md)
+adds visible navigation, explicit scales and a studio-control recorder foundation.
+This begins part of phase 6; it does not complete OCR, full recorder or hardware gates.
+
 The subsequent foundational Python engine now implements the requested image,
 touch, timing and Android API with worker pause/resume and editor integration;
 see [SCRIPTING_ENGINE.md](SCRIPTING_ENGINE.md). Hardware acceptance for the

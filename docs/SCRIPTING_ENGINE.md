@@ -1,5 +1,9 @@
 # Foundational scripting engine — implementation and validation
 
+Subsequent increment: [Device Manager and Visual Tools](DEVICE_MANAGER_VISUAL_TOOLS.md)
+adds explicit multi-scale Pattern matching and a studio-control recorder. The
+496-test report below remains the historical scripting-engine stage record.
+
 Date: 2026-10-30. Source development version: 0.2.0. This increment implements
 the requested SikuliX-style Python foundation on the existing Qt/Monaco,
 ADB/video, capture and spawned-worker architecture. It does not claim completion

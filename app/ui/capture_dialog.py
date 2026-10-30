@@ -12,12 +12,12 @@ import numpy as np
 from PySide6.QtCore import (QIODevice, QObject, QPointF, QRectF, QRunnable,
                             QSaveFile, QThreadPool, Qt, Signal, Slot)
 from PySide6.QtGui import QColor, QImage, QPainter, QPen
-from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QDoubleSpinBox, QFileDialog,
-                               QHBoxLayout, QLabel, QPushButton, QTabWidget, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFileDialog,
+                               QHBoxLayout, QLabel, QLineEdit, QPushButton, QTabWidget, QVBoxLayout, QWidget)
 
 from app.projects.assets import android_region, reference_code
 from app.streaming.coordinates import Viewport
-from app.vision.matching import Match, Region, find_all
+from app.vision.matching import Match, Region, find_scaled, validate_scales
 
 
 def image_rgb(image: QImage) -> np.ndarray:
@@ -140,7 +140,8 @@ class CaptureDialog(QDialog):
 
     def __init__(self, frame: QImage, serial: str, source_size: tuple[int, int] | None = None,
                  parent: QWidget | None = None, *, test_frame_provider: Callable[[], QImage] | None = None,
-                 script_directory: Path | None = None, save_directory: Path | None = None):
+                 script_directory: Path | None = None, save_directory: Path | None = None,
+                 template_image: QImage | None = None):
         super().__init__(parent)
         if not isinstance(frame, QImage) or frame.isNull():
             raise ValueError("Capture requires a valid decoded frame")
@@ -151,6 +152,9 @@ class CaptureDialog(QDialog):
         android_region(Region(0, 0, frame.width(), frame.height()),
                        (frame.width(), frame.height()), self.source_size)
         self.frame = frame.copy()
+        if template_image is not None and template_image.isNull():
+            raise ValueError("Match testing requires a decoded template")
+        self.template_image = template_image.copy() if template_image is not None else None
         self.test_frame_provider = test_frame_provider
         self.script_directory = script_directory
         self.save_directory = save_directory
@@ -197,6 +201,15 @@ class CaptureDialog(QDialog):
         self.test_button.clicked.connect(self.start_match)
         controls.addWidget(self.test_button)
         layout.addLayout(controls)
+        search_controls = QHBoxLayout()
+        self.scales = QLineEdit("1.0")
+        self.scales.setMaxLength(256)
+        self.scales.setToolTip("Explicit template scales: 0.75, 1, 1.25 (1–16 values between 0.1 and 4)")
+        search_controls.addWidget(QLabel("Template scales"))
+        search_controls.addWidget(self.scales)
+        self.search_selection = QCheckBox("Search only selected rectangle")
+        search_controls.addWidget(self.search_selection)
+        layout.addLayout(search_controls)
         self.result = QLabel("Select a region to save or test.")
         self.result.setWordWrap(True)
         if test_frame_provider is None:
@@ -205,6 +218,10 @@ class CaptureDialog(QDialog):
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+        if self.template_image is not None:
+            self.instructions.setText("Testing a project image on a fresh phone screen. Optionally drag a search rectangle; no input is sent.")
+            self.test_button.setEnabled(test_frame_provider is not None)
+            self.result.setText(f"Template: {self.template_image.width()} × {self.template_image.height()} pixels. Test uses a new full-resolution capture.")
 
     @property
     def selected_region(self) -> Region | None:
@@ -258,7 +275,15 @@ class CaptureDialog(QDialog):
         if self.test_frame_provider is None:
             self.result.setText("Fresh-frame matching unavailable: selected-device capture is required.")
             return
-        template = image_rgb(self.crop())
+        try:
+            template = image_rgb(self.template_image if self.template_image is not None else self.crop())
+            scales = validate_scales(tuple(float(value.strip()) for value in self.scales.text().split(",")))
+            region = self.selected_region if self.search_selection.isChecked() else None
+            if self.search_selection.isChecked() and region is None:
+                raise ValueError("Draw a search rectangle first")
+        except ValueError as error:
+            self.result.setText(str(error))
+            return
         threshold = self.threshold.value()
         provider = self.test_frame_provider
         expected_size = (self.frame.width(), self.frame.height())
@@ -269,7 +294,8 @@ class CaptureDialog(QDialog):
                 raise ValueError("Selected device returned no decoded frame")
             if (fresh.width(), fresh.height()) != expected_size:
                 raise ValueError("Device resolution or streaming quality changed; recapture the target before matching")
-            matches = find_all(image_rgb(fresh), template, threshold, max_results=100)
+            matches = find_scaled(image_rgb(fresh), template, threshold, region,
+                                  scales=scales, max_results=100)
             return fresh.copy(), matches
 
         self._busy = True
@@ -282,6 +308,8 @@ class CaptureDialog(QDialog):
         self.save_button.setEnabled(False)
         self.test_button.setEnabled(False)
         self.threshold.setEnabled(False)
+        self.scales.setEnabled(False)
+        self.search_selection.setEnabled(False)
         self.result.setText(f"Capturing and matching {self.serial} off the UI thread…")
         self._job = _MatchJob(operation)
         self._job.signals.done.connect(self._match_done, Qt.ConnectionType.QueuedConnection)
@@ -296,8 +324,11 @@ class CaptureDialog(QDialog):
             return
         self.canvas.setEnabled(True)
         self.threshold.setEnabled(True)
+        self.scales.setEnabled(True)
+        self.search_selection.setEnabled(True)
         self.save_button.setEnabled(self.selected_region is not None)
-        self.test_button.setEnabled(self.selected_region is not None and self.test_frame_provider is not None)
+        self.test_button.setEnabled((self.template_image is not None or self.selected_region is not None)
+                                   and self.test_frame_provider is not None)
         if error:
             self.canvas.matches = []
             self.result.setText(f"Match failed: {error}")

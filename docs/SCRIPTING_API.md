@@ -37,7 +37,7 @@ The old `getDevice()` return contract remains the serial string.
 | `Location(x: int, y: int)` | Nonnegative Android pixel coordinates. Touch operations additionally validate against a fresh full-device capture. |
 | `Region(x: int, y: int, width: int, height: int)` | Nonnegative origin, positive extent; recognition rejects any part outside the current full screenshot. |
 | `Offset(x: int = 0, y: int = 0)` | Signed integer displacement from an image match center, limited to ±100000 px per axis. |
-| `Pattern(path: str, similarity: float = 0.85, region: Region \| None = None, target_offset: Offset = Offset())` | Immutable image reference. `.similar(score)`, `.inRegion(region)` and `.targetOffset(dx, dy)` return new values. |
+| `Pattern(path: str, similarity: float = 0.85, region: Region \| None = None, target_offset: Offset = Offset(), scales: tuple[float, ...] = (1.0,))` | Immutable image reference. `.similar(score)`, `.inRegion(region)`, `.targetOffset(dx, dy)` and `.atScales(*scales)` return new values. Scales contain 1–16 finite values in [0.1, 4]; default is exactly one original-size search. |
 | `Match` | Immutable region, score, `device_serial`, `source_size`, `frame_id`, template and target offset. `.target` computes center plus offset and rejects an out-of-screen result. A match from another serial is rejected before input. Changed source dimensions require a new search. |
 | `Screen` | Immutable full-resolution RGB bytes, serial, width/height, frame ID and host monotonic capture-arrival timestamp. `.resolution` is `(width, height)`; `.to_numpy()` returns a read-only RGB view. Use `.copy()` to edit pixels. |
 
@@ -46,6 +46,14 @@ Coordinates always refer to the original device screen, never scaled preview
 pixels. A match is evidence from a past capture, not a guarantee that the app
 will remain unchanged before input. Scores are normalized matching scores, not
 probabilities. Constant/invalid templates fail explicitly.
+
+For explicit template resizing, use `Pattern("start.png").atScales(0.75, 1, 1.25)`.
+All recognition methods and image-based touch commands use those scales. Returned
+rectangles reflect the resized template in original screen coordinates; offsets
+remain original pixels. Cross-scale overlap suppression removes duplicates. No
+scale is implicit when excluded, and duplicate dimensions are searched once.
+Scales add native matching work; extremely small, spatially constant resizes are
+skipped. This is correlation, not OCR or general resolution independence.
 
 ## Actions
 

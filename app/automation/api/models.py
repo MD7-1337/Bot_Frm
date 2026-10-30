@@ -9,7 +9,7 @@ from uuid import uuid4
 import numpy as np
 
 from app.automation.api.errors import InvalidAsset, InvalidCoordinates
-from app.vision.matching import Location, Region
+from app.vision.matching import Location, Region, validate_scales
 
 
 def fraction(value: float, name: str = "similarity") -> float:
@@ -40,12 +40,13 @@ class Pattern:
     """Image-library reference with inclusive score threshold and search bounds.
 
     Builder methods return a new value. A score is normalized correlation, not
-    a correctness probability. Multi-scale matching is not implicit.
+    a correctness probability. Use atScales() to request explicit resizing.
     """
     path: str
     similarity: float = 0.85
     region: Region | None = None
     target_offset: Offset = Offset()
+    scales: tuple[float, ...] = (1.0,)
 
     def __post_init__(self):
         if not isinstance(self.path, str) or not self.path or "\x00" in self.path or len(self.path) > 4096:
@@ -55,6 +56,7 @@ class Pattern:
             raise ValueError("Pattern region must be a Region or None")
         if not isinstance(self.target_offset, Offset):
             raise ValueError("Pattern target_offset must be an Offset")
+        object.__setattr__(self, "scales", validate_scales(self.scales))
 
     def similar(self, score: float) -> Pattern:
         """Return this pattern with an inclusive normalized score threshold."""
@@ -67,6 +69,10 @@ class Pattern:
     def inRegion(self, region: Region) -> Pattern:
         """Return this pattern with search bounds in original Android pixels."""
         return replace(self, region=region)
+
+    def atScales(self, *scales: float) -> Pattern:
+        """Search explicit template scales (1–16 values, each 0.1–4); offsets stay screen pixels."""
+        return replace(self, scales=validate_scales(scales))
 
 
 @dataclass(frozen=True, slots=True)

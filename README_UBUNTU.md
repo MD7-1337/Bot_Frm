@@ -1,5 +1,9 @@
 # Android Automation Studio 0.2.0 — Ubuntu 22.04 x86_64
 
+To test the unmerged Device Manager/Visual Tools changes, clone with
+`--branch feat/device-manager-visual-tools` instead of `--branch main` below.
+See [the feature guide](docs/DEVICE_MANAGER_VISUAL_TOOLS.md) for the new controls.
+
 This project contains the current application, custom Monaco integration,
 documentation, examples, tests, `pyproject.toml`, `uv.lock`, and an exported,
 hashed `requirements.txt`. It excludes `.git`, `.venv`, caches, egg-info/build

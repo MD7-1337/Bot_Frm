@@ -12,7 +12,7 @@ import numpy as np
 
 from app.automation.api import errors
 from app.automation.api.models import Location, Match, Offset, Pattern, Region, Screen
-from app.vision.matching import find_all
+from app.vision.matching import find_scaled
 
 API_METHOD_NAMES = (
     "click", "doubleClick", "longPress", "tap", "swipe", "drag", "scroll",
@@ -257,7 +257,8 @@ class Device:
         self._region(search, screen)
         self._check()
         try:
-            found = find_all(screen.to_numpy(), template, pattern.similarity, search, max_results=limit)
+            found = find_scaled(screen.to_numpy(), template, pattern.similarity, search,
+                                scales=pattern.scales, max_results=limit)
         except ValueError as error:
             raise errors.InvalidAsset(str(error)) from error
         self._check()
