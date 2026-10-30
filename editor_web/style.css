@@ -1,0 +1,6 @@
+html, body, #editor { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #1e1e1e; }
+.studio-image-reference { text-decoration: underline dotted #6c9ecf; text-underline-offset: 3px; }
+.studio-image-missing { text-decoration: underline wavy #d6a94c; text-underline-offset: 3px; }
+.studio-image-hint { color: #88b9dd; font-size: 0.9em; }
+.studio-execution-line { background-color: rgba(242, 199, 70, 0.16); }
+.studio-execution-glyph::before { content: "▶"; color: #edcf69; padding-left: 3px; }
