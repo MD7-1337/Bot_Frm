@@ -1,6 +1,6 @@
 # Phase 0 validation report
 
-Latest increment: [Device Manager and Visual Tools validation](DEVICE_MANAGER_VISUAL_TOOLS.md).
+Latest increment: [Alpha stabilization validation](ALPHA_STABILIZATION.md).
 The report below remains the historical Phase 0 record.
 
 Historical baseline: the next device/video/capture increment is reported in

@@ -1,7 +1,7 @@
 """Editable Python timeline. Insertion never dispatches commands or starts replay."""
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (QAbstractItemView, QGridLayout, QLabel, QPushButton,
-                              QSizePolicy, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
+                              QDoubleSpinBox, QHBoxLayout, QSizePolicy, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
 
 class RecorderPanel(QWidget):
@@ -9,6 +9,9 @@ class RecorderPanel(QWidget):
     pause_requested = Signal()
     stop_requested = Signal()
     insert_requested = Signal()
+    save_requested = Signal()
+    load_requested = Signal()
+    replay_requested = Signal()
 
     def __init__(self, recorder, parent=None):
         super().__init__(parent)
@@ -23,6 +26,7 @@ class RecorderPanel(QWidget):
         self.status.setTextFormat(Qt.TextFormat.PlainText)
         layout.addWidget(self.status)
         controls = QGridLayout()
+        self.buttons = {}
         for index, (label, callback) in enumerate((
             ("Start on current phone", self.start_requested.emit),
             ("Pause / resume recording", self.pause_requested.emit),
@@ -33,8 +37,16 @@ class RecorderPanel(QWidget):
         )):
             button = QPushButton(label)
             button.clicked.connect(lambda checked=False, target=callback: target())
+            self.buttons[label] = button
             controls.addWidget(button, index // 4, index % 4)
         layout.addLayout(controls)
+        session = QHBoxLayout()
+        for text, signal in (("Save session…", self.save_requested), ("Open session…", self.load_requested), ("Replay on selected phone…", self.replay_requested)):
+            widget = QPushButton(text)
+            widget.clicked.connect(lambda checked=False, target=signal: target.emit())
+            session.addWidget(widget)
+            self.buttons[text] = widget
+        layout.addLayout(session)
         self.table = QTableWidget(0, 1)
         self.table.setHorizontalHeaderLabels(["Editable Python action / delay"])
         self.table.horizontalHeader().setStretchLastSection(True)
@@ -42,8 +54,20 @@ class RecorderPanel(QWidget):
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setAccessibleName("Recorded Python action timeline")
         self.table.setMinimumHeight(70)
-        self.table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Ignored)
-        layout.addWidget(self.table)
+        self.table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        layout.addWidget(self.table, stretch=1)
+        delay = QHBoxLayout()
+        delay.addWidget(QLabel("Insert delay (seconds)"))
+        self.delay = QDoubleSpinBox()
+        self.delay.setRange(0, 86400)
+        self.delay.setValue(1)
+        delay.addWidget(self.delay)
+        delay_button = QPushButton("Add delay")
+        delay_button.clicked.connect(self.add_delay)
+        delay.addWidget(delay_button)
+        self.buttons["Add delay"] = delay_button
+        delay.addStretch()
+        layout.addLayout(delay)
         self.refresh()
 
     def refresh(self, *, reset=False):
@@ -81,3 +105,25 @@ class RecorderPanel(QWidget):
         self.recorder.actions = actions
         self._rendered_count = len(actions)
         return self.recorder.source()
+
+    def set_control_state(self, can_record, state):
+        self.buttons["Start on current phone"].setEnabled(can_record and state == "stopped")
+        self.buttons["Pause / resume recording"].setEnabled(state in ("recording", "paused"))
+        self.buttons["Stop recording"].setEnabled(state != "stopped")
+        has_actions = self.table.rowCount() > 0
+        for text in ("Delete step", "Move up", "Move down", "Insert Python into Monaco", "Save session…"):
+            self.buttons[text].setEnabled(state == "stopped" and has_actions)
+        self.buttons["Replay on selected phone…"].setEnabled(can_record and state == "stopped" and has_actions)
+        self.buttons["Open session…"].setEnabled(state == "stopped")
+        self.buttons["Add delay"].setEnabled(state == "stopped")
+
+    def add_delay(self):
+        if self.recorder.state != "stopped":
+            return
+        if self.table.rowCount() >= self.recorder.limit:
+            self.status.setText("Timeline limit reached; delete a step first.")
+            return
+        row = self.table.currentRow() + 1 if self.table.currentRow() >= 0 else self.table.rowCount()
+        self.table.insertRow(row)
+        self.table.setItem(row, 0, QTableWidgetItem(f"sleep({self.delay.value()})"))
+        self.table.selectRow(row)

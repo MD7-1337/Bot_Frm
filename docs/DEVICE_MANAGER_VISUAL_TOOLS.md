@@ -1,5 +1,9 @@
 # Device Manager, visual tools and recorder increment
 
+Historical stage: the subsequent [alpha stabilization](ALPHA_STABILIZATION.md)
+supersedes the layout, adds diagnostics and recorder sessions, and records the
+latest test evidence. The report below describes its original feature commit.
+
 Date: 2026-10-30. Development version remains 0.2.0. Windows 10/11 x64 is the
 final target. This increment was exercised on Linux; it is not Windows or
 physical Android acceptance.

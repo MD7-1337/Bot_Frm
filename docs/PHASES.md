@@ -1,5 +1,10 @@
 # Delivery phases, gates and test strategy
 
+Current alpha stabilization: [ALPHA_STABILIZATION.md](ALPHA_STABILIZATION.md)
+adds real staged connection diagnostics, central workspaces, recorder sessions
+and RGB pixel/color APIs. Hardware/Windows acceptance, OCR, debugger and scheduling
+remain separate gates. Task Manager does not pretend to schedule tasks.
+
 Latest increment: [Device Manager and Visual Tools](DEVICE_MANAGER_VISUAL_TOOLS.md)
 adds visible navigation, explicit scales and a studio-control recorder foundation.
 This begins part of phase 6; it does not complete OCR, full recorder or hardware gates.

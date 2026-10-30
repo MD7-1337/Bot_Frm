@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import (QFormLayout, QGridLayout, QGroupBox, QHBoxLayout,
-                              QLabel, QPushButton, QScrollArea, QSpinBox,
+from PySide6.QtWidgets import (QFormLayout, QGroupBox, QHBoxLayout,
+                              QLabel, QMenu, QPushButton, QScrollArea, QSpinBox, QToolButton,
                               QVBoxLayout, QWidget)
+
+from app.ui.components import button, label
 
 from app.streaming.manager import StreamOptions
 from app.ui.preview import PhonePreview
@@ -15,14 +17,24 @@ class LivePanel(QWidget):
     start_all_requested = Signal()
     stop_requested = Signal()
     fallback_requested = Signal()
+    home_requested = Signal()
+    back_requested = Signal()
+    capture_requested = Signal()
 
     def __init__(self, selected: PhonePreview, parent=None):
         super().__init__(parent)
         layout = QVBoxLayout(self)
-        self.status = QLabel("Select an authorized phone. Live video starts only on request.")
-        self.status.setWordWrap(True)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(8)
+        heading = QHBoxLayout()
+        heading.addWidget(label("PHONE PREVIEW", "eyebrow"), stretch=1)
+        self.configure = button("Quality", self._toggle_quality)
+        heading.addWidget(self.configure)
+        layout.addLayout(heading)
+        self.status = label("Connect and select a phone, then start live video.", "notice")
         layout.addWidget(self.status)
-        settings = QFormLayout()
+        self.quality = QGroupBox("Next stream settings")
+        settings = QFormLayout(self.quality)
         self.fps = QSpinBox()
         self.fps.setRange(1, 60)
         self.fps.setValue(30)
@@ -36,21 +48,35 @@ class LivePanel(QWidget):
         self.max_size.setSingleStep(128)
         self.max_size.setValue(1280)
         self.max_size.setSuffix(" px")
-        for label, widget in (("Maximum FPS", self.fps), ("Video bitrate", self.bitrate), ("Maximum edge", self.max_size)):
-            widget.setToolTip("Applied when starting a stream. Stop first to change an active session.")
-            settings.addRow(label, widget)
-        layout.addLayout(settings)
-        buttons = QGridLayout()
-        for index, (text, signal) in enumerate((("Start live", self.start_requested),
-                                               ("Stop live", self.stop_requested),
-                                               ("Start all connected", self.start_all_requested),
-                                               ("Screenshot fallback", self.fallback_requested))):
-            button = QPushButton(text)
-            button.clicked.connect(lambda checked=False, target=signal: target.emit())
-            buttons.addWidget(button, index // 2, index % 2)
-        layout.addLayout(buttons)
-        self.geometry_label = QLabel("Resolution / orientation: unavailable")
+        for text, widget in (("FPS", self.fps), ("Bitrate", self.bitrate), ("Maximum edge", self.max_size)):
+            widget.setToolTip("Applied at stream start. Stop the stream before changing settings.")
+            settings.addRow(text, widget)
+        self.quality.hide()
+        layout.addWidget(self.quality)
+        controls = QHBoxLayout()
+        self.start_button = button("Start live", self.start_requested.emit, primary=True)
+        self.stop_button = button("Stop", self.stop_requested.emit)
+        self.more = QToolButton()
+        self.more.setText("More")
+        self.more.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        menu = QMenu(self.more)
+        self.start_all_action = menu.addAction("Start all connected")
+        self.start_all_action.triggered.connect(lambda: self.start_all_requested.emit())
+        self.fallback_action = menu.addAction("Screenshot fallback")
+        self.fallback_action.triggered.connect(lambda: self.fallback_requested.emit())
+        self.more.setMenu(menu)
+        for widget in (self.start_button, self.stop_button, self.more):
+            controls.addWidget(widget)
+        layout.addLayout(controls)
+        self.geometry_label = label("Original resolution: awaiting a frame")
         layout.addWidget(self.geometry_label)
+        android = QHBoxLayout()
+        self.back_button = button("Back", self.back_requested.emit)
+        self.home_button = button("Home", self.home_requested.emit)
+        self.capture_button = button("Capture", self.capture_requested.emit)
+        for widget in (self.back_button, self.home_button, self.capture_button):
+            android.addWidget(widget)
+        layout.addLayout(android)
         content = QWidget()
         contents = QVBoxLayout(content)
         contents.setContentsMargins(0, 0, 0, 0)
@@ -62,6 +88,19 @@ class LivePanel(QWidget):
         scroll.setWidget(content)
         layout.addWidget(scroll)
         self.tiles: dict[str, tuple[QGroupBox, PhonePreview, QLabel]] = {}
+
+    def _toggle_quality(self):
+        self.quality.setVisible(not self.quality.isVisible())
+
+    def set_control_state(self, available, can_input, state="stopped"):
+        self.start_button.setEnabled(available and state not in ("starting", "streaming", "stopping"))
+        self.stop_button.setEnabled(state in ("starting", "streaming"))
+        self.fallback_action.setEnabled(available)
+        self.start_all_action.setEnabled(available)
+        for widget in (self.back_button, self.home_button):
+            widget.setEnabled(can_input)
+            widget.setToolTip("Send to the selected phone" if can_input else "Select an idle authorized phone and reset emergency stop")
+        self.capture_button.setEnabled(available)
 
     def options(self):
         return StreamOptions(max_fps=self.fps.value(), bitrate=self.bitrate.value() * 1_000_000,

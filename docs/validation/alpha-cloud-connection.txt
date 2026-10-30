@@ -1,0 +1,35 @@
+Android Automation Studio — connection diagnostics
+Host: Linux-6.18.55-x86_64-with-glibc2.41
+ADB: /workspace/Bot_Frm/.tools/platform-tools/adb
+Checks are observations on this host; skipped checks are NOT VERIFIED.
+
+[PASSED] ADB executable
+/workspace/Bot_Frm/.tools/platform-tools/adb
+
+[PASSED] ADB version
+Android Debug Bridge version 1.0.41
+Version 37.0.1-15733141
+Installed as /workspace/Bot_Frm/.tools/platform-tools/adb
+Running on Linux 6.18.55 (x86_64)
+
+[PASSED] ADB server response
+ADB start-server responded successfully; no explicit kill-server command was issued.
+
+[PASSED] Device discovery
+List of devices attached
+
+[FAILED] Authorized device
+No device detected
+Next: Authorize USB debugging on the unlocked phone. Offline: check cable/Wi-Fi and refresh. USB permissions denied: ask the computer administrator for udev/group access; app code cannot bypass it. Select an authorized phone, then diagnose again.
+
+[NOT VERIFIED] Harmless Android query
+Earlier check did not pass
+Next: Refresh after unlocking/reconnecting. Check that the exact serial is authorized and the selected ADB server can address it.
+
+[NOT VERIFIED] Screenshot capture
+Earlier check did not pass
+Next: The phone may have disconnected, or Android/app security policy may restrict screen capture. Check the phone and try its home screen. Protected content may remain black.
+
+[NOT VERIFIED] Real decoded video frame
+Video check disabled
+Next: Use the pinned scrcpy 3.1 server (python tools/fetch_scrcpy.py). Check PyAV/H.264 dependencies and codec support. Try a lower stream size/FPS; screenshot fallback remains available and is not video.

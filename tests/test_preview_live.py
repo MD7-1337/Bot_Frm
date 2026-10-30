@@ -62,7 +62,7 @@ def test_invalid_frame_geometry_rejected(arguments):
 @pytest.mark.skipif(os.environ.get("STUDIO_GUI_TESTS") != "1", reason="Enable actual Qt GUI probes explicitly")
 def test_actual_rgb_preview_and_mouse_gestures(tmp_path):
     root = Path(__file__).resolve().parents[1]
-    environment = dict(os.environ, XDG_CONFIG_HOME=str(tmp_path))
+    environment = dict(os.environ, XDG_CONFIG_HOME=str(tmp_path), STUDIO_CONFIG_DIR=str(tmp_path))
     result = subprocess.run([sys.executable, str(root / "tests/probe_preview_live.py")],
                             cwd=root, env=environment, capture_output=True,
                             text=True, timeout=25)

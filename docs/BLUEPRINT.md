@@ -1,5 +1,10 @@
 # Android Automation Studio — engineering blueprint
 
+Latest alpha implementation: [ALPHA_STABILIZATION.md](ALPHA_STABILIZATION.md)
+and [CONTROL_INVENTORY.md](CONTROL_INVENTORY.md). The redesigned shell reuses
+the existing services in central workspaces; diagnostics expose host/phone failures.
+This design baseline still includes later, unimplemented release subsystems.
+
 Version 0.1 · 2026-10-29 · targets Windows 10/11 x64
 
 Current GUI/recognition/recorder increment: [DEVICE_MANAGER_VISUAL_TOOLS.md](DEVICE_MANAGER_VISUAL_TOOLS.md).
