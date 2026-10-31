@@ -9,7 +9,8 @@ permissions:
   contents: read
 concurrency:
   group: alpha-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Preserve native build evidence when a follow-up fix is pushed.
+  cancel-in-progress: false
 jobs:
   test-and-package:
     name: ${{ matrix.platform }} source and extracted package
@@ -24,7 +25,7 @@ jobs:
             platform: windows-x64
             python: .venv/Scripts/python.exe
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 50
+    timeout-minutes: 75
     env:
       STUDIO_GUI_TESTS: '1'
       QT_QPA_PLATFORM: offscreen

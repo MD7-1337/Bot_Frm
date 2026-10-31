@@ -1,0 +1,99 @@
+{
+  "schema": 1,
+  "validated_utc": "2026-10-31T23:11:10.394365+00:00",
+  "platform": "Linux-6.18.57-x86_64-with-glibc2.41",
+  "python": "3.12",
+  "source_provenance_complete": true,
+  "build_mode": "Full normal helper build from both verified source archives",
+  "sources": {
+    "ffmpeg_url": "https://codeload.github.com/FFmpeg/FFmpeg/tar.gz/refs/tags/n7.1",
+    "ffmpeg_sha256": "7ddad2d992bd250a6c56053c26029f7e728bebf0f37f80cf3f8a0e6ec706431a",
+    "pyav_url": "https://files.pythonhosted.org/packages/f8/b6/83129e0337376214b0304893cbf0ad0a54718bb47845517fa5870439ca0b/av-14.2.0.tar.gz",
+    "pyav_sha256": "132b5d52ca262b97b0356e8f48cbbe54d0ac232107a722ab8cc8c0c19eafa17b"
+  },
+  "wheel": {
+    "filename": "av-14.2.0-cp312-cp312-manylinux_2_35_x86_64.whl",
+    "sha256": "e19fed51a91e958f6fb3e9eae0400ff99420fec9d774e19104794df40bae19c7"
+  },
+  "native_runtime": {
+    "pyav": "14.2.0",
+    "ffmpeg_version": "7.1",
+    "license": "LGPL version 2.1 or later",
+    "configuration": "--prefix=<build-prefix> --disable-gpl --disable-nonfree --disable-version3 --disable-autodetect --disable-static --enable-shared --disable-programs --disable-doc --disable-debug --disable-x86asm --disable-network --disable-everything --enable-avcodec --enable-avformat --enable-avfilter --enable-avdevice --enable-swscale --enable-swresample --enable-decoder='h264,mjpeg,rawvideo' --enable-parser=h264 --enable-demuxer='h264,image2' --enable-protocol='file,pipe' --enable-filter='buffer,buffersink,scale'",
+    "library_versions": {
+      "libavutil": [
+        59,
+        39,
+        100
+      ],
+      "libavcodec": [
+        61,
+        19,
+        100
+      ],
+      "libavformat": [
+        61,
+        7,
+        100
+      ],
+      "libavdevice": [
+        61,
+        3,
+        100
+      ],
+      "libavfilter": [
+        10,
+        4,
+        100
+      ],
+      "libswscale": [
+        8,
+        3,
+        100
+      ],
+      "libswresample": [
+        5,
+        3,
+        100
+      ]
+    },
+    "decoded_h264": true,
+    "frame_size": [
+      32,
+      24
+    ],
+    "pixel": [
+      252,
+      0,
+      0
+    ]
+  },
+  "build_prefix_library_search_path_removed": true,
+  "application_decoder": {
+    "passed": true,
+    "frame_count": 1,
+    "frame_size": [
+      32,
+      24
+    ],
+    "first_rgb_pixel": [
+      252,
+      0,
+      0
+    ],
+    "class": "app.streaming.decoder.H264Decoder",
+    "input_class": "app.streaming.protocol.VideoPacket",
+    "fixture_sha256": "a52ea0e8dcca0ee6b5cd6d8c1fdd82e2799920c0c9f5bb2405d15f34fba702d0",
+    "decoder_source_sha256": "262c5f168606bfbd248df132da746566fdb7af4215672ca67f6e59ac87502263"
+  },
+  "builder_regression_tests": {
+    "passed": 6
+  },
+  "full_normal_source_build": "passed",
+  "limits": [
+    "Native Linux decoder proof; complete Ubuntu frozen application not validated by this evidence",
+    "No Windows execution",
+    "No physical Android hardware validation",
+    "Original Ubuntu archive unchanged"
+  ]
+}
