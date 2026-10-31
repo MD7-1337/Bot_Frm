@@ -1,8 +1,8 @@
 # Android Automation Studio
 
-A Windows-targeted desktop IDE for Android visual automation. **The current alpha adds opt-in offline simulation, optional local Tesseract OCR, a recognition inspector and recorder image conversion to the existing PySide6/Monaco, ADB/scrcpy and isolated scripting engine. It has not passed real-phone or Windows acceptance.**
+A Windows-targeted desktop IDE for Android visual automation. **This 0.2.0 Alpha development increment adds a real worker debugger, persistent task scheduling, project archives, safer recovery tools and verified editor startup. It is not yet a feature-complete Alpha candidate: remaining scope and Windows/real-phone acceptance are recorded in [the development report](docs/ALPHA_COMPLETION.md).**
 
-Start here: [local testing without sudo, demo mode and first workflows](docs/LOCAL_TESTING.md). Read the latest [Phase 6 validation](docs/PHASE6_VALIDATION.md), [simulation guide](docs/SIMULATION.md), [recognition guide](docs/RECOGNITION.md), [recorder guide](docs/RECORDER.md) and [Phase 7 foundation](docs/DEBUGGING.md). The [alpha stabilization report](docs/ALPHA_STABILIZATION.md) separates confirmed code repairs from the user's PC-level USB problem; the [control inventory](docs/CONTROL_INVENTORY.md) records what is verified and what requires hardware.
+Start here: [installation and dependency health](docs/INSTALLATION.md), [local testing](docs/LOCAL_TESTING.md), [debugger](docs/DEBUGGING.md), [tasks](docs/TASKS.md), [projects](docs/PROJECTS.md), [recovery](docs/RECOVERY.md), and [Windows packaging](docs/PACKAGING.md). The [Phase 6 validation](docs/PHASE6_VALIDATION.md) is historical baseline evidence. Existing [simulation](docs/SIMULATION.md), [recognition](docs/RECOGNITION.md), [recorder](docs/RECORDER.md) and [device troubleshooting](docs/ALPHA_STABILIZATION.md) workflows remain available.
 
 Start with the [engineering blueprint](docs/BLUEPRINT.md), [technology decisions](docs/DECISIONS.md), [milestones](docs/PHASES.md), and [actual validation results](docs/VALIDATION.md).
 
@@ -35,10 +35,16 @@ The original [product specification](docs/PRODUCT_SPECIFICATION.md) is retained 
 - Explicit Start Demo Session with three stateful scenarios, separate simulation identities/transport, real OpenCV matching, screenshot tools, recorder and normal spawned Python workers. No ADB registry entries or silent fallback.
 - Optional offline Tesseract text APIs with bounding boxes, RGB/image/OCR inspector, preprocessing and generated Monaco assistance.
 - Pre-tap recorder screenshots, real crop/save/coordinate-to-image conversion and classified worker failures with source navigation.
+- Monaco file integrity checks, guarded AMD startup, readiness timeout and actionable GUI/CLI dependency health checks.
+- Per-worker breakpoint debugging, continue/pause/step into/over/out, stack and bounded variables, native inspector and source snapshot protection. Debugging uses Python's standard `bdb`; no network debugger endpoint is opened.
+- SQLite task definitions/history, manual/once/interval/daily/weekly schedules, priorities, dependencies, timeouts, independent device queues and explicit session trust. Restart, disconnect and emergency stop revoke scheduling approval.
+- Versioned managed projects, migration backups, search, recent projects, atomic metadata, duplicate and guarded ZIP backup/export/import. Imported data never authorizes Python execution.
+- Bounded read-only recognition recovery, checkpoint validation and persistent failure history under Activity & Logs. Input outcomes are never blindly replayed.
+- Windows freezer/portable/installer recipes and CI smoke gates. Windows artifacts have **not** been built or validated in this Linux execution.
 
 Real phones use the existing ADB/scrcpy backend. Simulation is explicitly opt-in and labeled **SIMULATED DEVICE — NOT CONNECTED TO ANDROID HARDWARE**. Missing dependencies/devices produce actionable errors.
 
-**Not implemented yet:** general Python language service, full project backup/import/export management, UI-element APIs, curved multitouch and full Android recorder semantics, breakpoint debugger, scheduler, SQLite business persistence, updater, installer or portable Windows build. Task Manager explicitly describes planned scheduling and links to real script assignments.
+**Remaining scope:** general Python language service, UI-element APIs, physical-touch recording, multitouch, group scheduling/visual workflow editing, complete project autosave/recovery UX, conditional/library breakpoints, debugger expression evaluation and updater. Windows packaging recipes still require an actual Windows build, licensing review and platform acceptance. See the [precise continuation list](docs/ALPHA_COMPLETION.md).
 
 ## Development setup
 
@@ -62,6 +68,7 @@ These Windows instructions are intended commands, not evidence of a Windows run.
 cd /workspace/Bot_Frm
 bash tools/setup.sh
 .venv/bin/python -m app.main --diagnostics
+.venv/bin/python -m app.main --health
 ```
 
 On a Linux desktop, launch with `.venv/bin/python -m app.main`. A headless cloud machine has no interactive Windows desktop. Use the tests below for integration verification; do not expect a browser preview of this native application.
@@ -87,7 +94,7 @@ For useful phone-free development, launch the normal app and choose **Start Demo
 
 Set `STUDIO_ADB` to an explicit executable path when needed. Otherwise the application tries PATH, then its verified local tools. `STUDIO_SCRCPY_SERVER` may select a local server file but must match the exact pinned artifact. The native scrcpy desktop executable is optional. Wi-Fi connect/pair is available in Device Manager; its actual Android acceptance still needs hardware. Do not expose an unauthenticated ADB port to untrusted networks.
 
-Select a row under **Script runs** and use F6 to pause, Shift+F6 to resume, or Shift+F5 to stop it. Pause is acknowledged only at a safe point; native calls can delay acknowledgment. Editing source clears its stale execution-line decoration. Project choice and file assignments are session context, not a persistent task scheduler.
+Select a row under **Script runs** and use F6 to pause, Shift+F6 to resume, or Shift+F5 to stop it. Pause is acknowledged at a safe point; native calls can delay acknowledgment. Editing source clears stale execution-line decoration. For line debugging use Monaco gutter breakpoints and **F9**. For persistent runs use **Task Manager**: create from the editor, approve the exact source/device, then resume scheduling or Run now. Project choice alone never starts automation.
 
 ## Foundational script API
 
@@ -105,7 +112,7 @@ print(getDevice(), getResolution())
 
 Scripts are ordinary trusted Python with host-user permissions. Process isolation is **not a security sandbox** and cannot stop arbitrary imports, external ADB clients, or script-created descendants. GUI approval is never exposed through the web bridge. Leases coordinate this app's built-in operations, not other programs.
 
-The implemented API includes `click`, `doubleClick`, `longPress`, `tap`, `swipe`, `drag`, `scroll`, `find`, `findAll`, `exists`, `waitImage`, `waitVanish`, `sleep`, overloaded `wait`, `back`, `home`, `launchApp`, `stopApp`, supported `typeText`, `capture`, `getResolution` and compatible serial-returning `getDevice`. All are also methods on `device`. See [SCRIPTING_API.md](docs/SCRIPTING_API.md) for signatures, return values, image paths, ambiguity and timeout rules. OCR and other broader blueprint APIs remain future work.
+The implemented API includes `click`, `doubleClick`, `longPress`, `tap`, `swipe`, `drag`, `scroll`, `find`, `findAll`, `exists`, `waitImage`, `waitVanish`, `sleep`, overloaded `wait`, `back`, `home`, `launchApp`, `stopApp`, supported `typeText`, `capture`, `getResolution`, serial-returning `getDevice`, RGB inspection and optional local OCR. All are methods on `device` too. See [SCRIPTING_API.md](docs/SCRIPTING_API.md) for exact contracts and [RECOVERY.md](docs/RECOVERY.md) for explicit read-retry policies.
 
 To run the two-worker proof without phones:
 

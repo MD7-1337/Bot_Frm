@@ -1,0 +1,22 @@
+{
+  "passed": true,
+  "measured_at_utc": "2026-10-31T09:56:49.423731+00:00",
+  "frozen": false,
+  "platform": "Linux-6.18.57-x86_64-with-glibc2.41",
+  "python": "3.12.14",
+  "windows_runtime": "NOT VERIFIED",
+  "physical_android": "NOT VERIFIED",
+  "simulation": {
+    "passed": true,
+    "devices": 1,
+    "independent_pids": 1,
+    "elapsed_seconds": 0.2817,
+    "actions": "actual image matching and click changed each simulation state",
+    "android_hardware": "NOT VERIFIED"
+  },
+  "gui": {
+    "passed": true,
+    "monaco_ready": true,
+    "window_visible": true
+  }
+}

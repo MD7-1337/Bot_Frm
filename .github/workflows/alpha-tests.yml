@@ -1,9 +1,9 @@
 name: Alpha source tests
 on:
   push:
-    branches: [feat/device-manager-visual-tools, fix/alpha-device-connect-and-ux-overhaul, feat/phase6-recognition-simulator]
+    branches: [feat/device-manager-visual-tools, fix/alpha-device-connect-and-ux-overhaul, feat/phase6-recognition-simulator, 'feat/alpha-completion*']
   pull_request:
-    branches: [main, feat/device-manager-visual-tools, fix/alpha-device-connect-and-ux-overhaul]
+    branches: [main, feat/device-manager-visual-tools, fix/alpha-device-connect-and-ux-overhaul, feat/phase6-recognition-simulator]
 permissions:
   contents: read
 jobs:
@@ -38,3 +38,42 @@ jobs:
           QT_QPA_PLATFORM: offscreen
           QTWEBENGINE_CHROMIUM_FLAGS: --disable-gpu
         run: uv run python -m pytest -q
+      - name: Measure actual independent simulation workers
+        run: uv run python tools/benchmark_workers.py --output worker-benchmark.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: source-evidence-${{ runner.os }}
+          path: worker-benchmark.json
+
+  windows-portable:
+    needs: source-tests
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned source and freezer
+        run: |
+          python -m pip install uv==0.12.23
+          uv sync --locked --extra test --python 3.12
+          uv pip install --python .venv/Scripts/python.exe PyInstaller==6.12.0
+      - name: Restore pinned offline editor
+        run: .venv/Scripts/python.exe tools/fetch_monaco.py
+      - name: Build and smoke frozen GUI and actual simulation worker
+        env:
+          QT_QPA_PLATFORM: offscreen
+          QTWEBENGINE_CHROMIUM_FLAGS: --disable-gpu
+        run: .venv/Scripts/python.exe tools/build_windows.py
+      - name: Upload developer portable and exact evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64-developer-portable
+          path: |
+            dist/*portable.zip
+            dist/*.sha256
+            dist/windows-frozen-smoke.json
+            build/release-notices/inventory.json

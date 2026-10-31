@@ -20,6 +20,7 @@ def number(low, high, value):
 class SettingsPanel(QWidget):
     apply_requested = Signal(object)
     check_ocr_requested = Signal()
+    check_health_requested = Signal()
 
     def __init__(self, settings, parent=None):
         super().__init__(parent)
@@ -67,6 +68,7 @@ class SettingsPanel(QWidget):
         form.addRow("Maximum edge (px)", self.max_size)
         layout.addLayout(form)
         layout.addWidget(label("Tool changes require all runs, diagnostics, jobs and live previews to be idle. Stream options apply at the next start. STUDIO_ADB and STUDIO_SCRCPY_SERVER override saved tool paths.", "notice"))
+        layout.addWidget(button("Check dependency health…", self.check_health_requested.emit))
         layout.addStretch()
         tabs.addTab(scroll(tools), "Devices & video")
         automation = QWidget()

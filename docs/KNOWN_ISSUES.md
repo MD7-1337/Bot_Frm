@@ -1,0 +1,40 @@
+# Current limitations and acceptance gates
+
+Source version remains **0.2.0 Alpha**. This increment is substantial development,
+not a feature-complete Alpha candidate or Beta release.
+
+- Real USB/Wi-Fi phones, scrcpy frames, rotation, touch mapping, reconnect and
+  two-phone independence are **NOT VERIFIED** in this Linux cloud environment.
+- Windows source/packaged runtime and installer are **NOT VERIFIED**. Recipes and
+  CI jobs are provided; no portable ZIP or installer artifact is claimed here.
+- Debugger line breakpoints target the main approved script. Imported project
+  frames support stepping/inspection; conditional/function breakpoints, editable
+  imported-file snapshots, watch expressions and evaluation are deferred.
+- Debugger pause can wait for native code. Stop still uses bounded owned-process
+  termination. Arbitrary trusted script descendants are not an OS sandbox.
+- Task queues arbitrate this application instance. Device-group expansion,
+  graphical workflow authoring, holiday calendars, distributed/multiple-instance
+  arbitration and automatic dependency execution are deferred. Dependencies gate
+  on recorded success; they do not secretly start another script.
+- Task approval lasts for this application session. Reconnect/reset, restart,
+  source changes and emergency stop require approval again. Imported task
+  definitions are disabled/unapproved. Imported Python helpers and image assets
+  are mutable files, not snapshotted dependencies; review the whole project.
+- A scheduler cannot guarantee exactly-once Android actions. Lost acknowledgments
+  and interrupted dispatch remain uncertain; unsafe input is never blindly
+  retried. Read-only recovery checkpoints are in-memory, not persistent resumes.
+- Project backup/export covers saved files. Dirty editor buffers need explicit
+  saving. Complete autosave/recovery UI, editable run/recognition configuration
+  forms and destructive project deletion are deferred. Archives are bounded and
+  intentionally exclude hidden files, logs and common credential files; review
+  scripts for embedded secrets before sharing.
+- Optional OCR requires a locally configured Tesseract engine/languages; stylized
+  game text and arbitrary image variations cannot be guaranteed.
+- Short simulator benchmarks establish only the measured fixture workload.
+  Sustained streaming load, long-run leak testing and real-device limits remain
+  acceptance work.
+- Redistribution needs repository license confirmation, Qt/WebEngine/Chromium
+  notices, FFmpeg/PyAV license review and Android-tool terms review. Unsigned
+  packaging recipes do not resolve these obligations.
+
+See [the development report](ALPHA_COMPLETION.md) for evidence and next steps.

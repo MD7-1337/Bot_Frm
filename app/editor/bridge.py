@@ -70,6 +70,7 @@ class EditorBridge(QObject):
     ready = Signal()
     changed = Signal(str)
     failed = Signal(str)
+    breakpoints_changed = Signal(object)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -91,6 +92,27 @@ class EditorBridge(QObject):
             self.changed.emit(source)
         else:
             self.failed.emit("Document exceeds editor size limit")
+
+    @Slot(str)
+    def breakpointsChanged(self, raw: str) -> None:
+        # Source metadata only: this slot cannot start or control any execution.
+        if len(raw) > 12_000:
+            return
+        try:
+            payload = json.loads(raw)
+        except (ValueError, TypeError):
+            return
+        key = None
+        if isinstance(payload, dict):
+            key = payload.get("key")
+            if not isinstance(key, str) or len(key) > 4096:
+                return
+            lines = payload.get("lines")
+        else:
+            lines = payload
+        if not isinstance(lines, list) or len(lines) > 1000 or any(type(line) is not int or not 1 <= line <= 1_000_000 for line in lines):
+            return
+        self.breakpoints_changed.emit({"key": key, "lines": sorted(set(lines))} if key is not None else sorted(set(lines)))
 
     @Slot(str, result=str)
     def diagnostics(self, source: str) -> str:

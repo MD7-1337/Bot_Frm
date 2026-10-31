@@ -14,26 +14,45 @@ import sys
 def diagnostics() -> dict:
     from app.devices.paths import adb_executable
     from app.settings import create_store
-    settings = create_store()
+    from app.health import SERVER_SHA256, dependency_health
+    try:
+        settings = create_store()
+        value = settings.value
+    except (ImportError, OSError, RuntimeError):
+        value = lambda key, default="": default
     import hashlib
-    from app.streaming.session import SERVER_SHA256
-    server = Path(os.environ.get("STUDIO_SCRCPY_SERVER") or settings.value("scrcpy_server_path", "") or Path(__file__).resolve().parents[1] / ".tools/scrcpy-server-v3.1").expanduser()
-    server_verified = server.is_file() and server.stat().st_size <= 2_000_000 and hashlib.sha256(server.read_bytes()).hexdigest() == SERVER_SHA256
-    from app.automation.api import API_METHOD_NAMES
-    return {"phase": "phase6-recognition-simulation", "platform": platform.platform(), "python": platform.python_version(),
-            "dependencies": {name: importlib.metadata.version(name) for name in
+    server = Path(os.environ.get("STUDIO_SCRCPY_SERVER") or value("scrcpy_server_path", "") or Path(__file__).resolve().parents[1] / ".tools/scrcpy-server-v3.1").expanduser()
+    try:
+        server_verified = server.is_file() and server.stat().st_size <= 2_000_000 and hashlib.sha256(server.read_bytes()).hexdigest() == SERVER_SHA256
+    except (OSError, RuntimeError):
+        server_verified = False
+    try:
+        from app.automation.api import API_METHOD_NAMES
+    except ImportError:
+        API_METHOD_NAMES = ()
+    def installed(name):
+        try:
+            return importlib.metadata.version(name)
+        except importlib.metadata.PackageNotFoundError:
+            return None
+    health = dependency_health(adb_path=value("adb_path", ""), server_path=value("scrcpy_server_path", ""), ocr_path=value("ocr_executable", ""))
+    return {"phase": "alpha-completion-development", "platform": platform.platform(), "python": platform.python_version(),
+            "health": health, "dependencies": {name: installed(name) for name in
                              ("PySide6", "numpy", "opencv-python-headless", "av")},
-            "adb": shutil.which(adb_executable(settings.value("adb_path", ""))),
+            "adb": shutil.which(adb_executable(value("adb_path", ""))),
             "scrcpy": shutil.which("scrcpy"),
-            "monaco_local": (Path(__file__).resolve().parents[1] / "editor_web/vendor/vs/loader.js").is_file(),
+            "monaco_local": next(item["status"] == "ok" for item in health["checks"] if item["name"] == "Monaco"),
             "scrcpy_server_version": "3.1", "scrcpy_server_verified": server_verified,
             "embedded_scrcpy": "implemented; hardware acceptance unverified",
             "automation_commands": list(API_METHOD_NAMES), "script_pause_resume": True,
-            "workspaces": ["Script Studio", "Device Manager", "Visual Tools", "Recorder", "Activity & Logs", "Task Manager (planned scheduling)", "Settings"],
-            "recorder": "studio controls; pre-tap evidence; explicit saved image conversion; JSON v1/v2; trusted replay",
+            "workspaces": ["Script Studio", "Device Manager", "Visual Tools", "Recorder", "Activity & Logs", "Task Manager", "Settings", "Debugger", "Projects"],
+            "recorder": "studio controls; timestamps; pre-tap evidence; saved image conversion; JSON v1/v2/v3; trusted replay",
             "simulation": "explicit opt-in; 3 stateful scenarios; separate transport; no Android hardware verification",
-            "ocr": {"engine": "optional local Tesseract TSV; no downloads", "executable": shutil.which(settings.value("ocr_executable", "") or os.environ.get("STUDIO_TESSERACT") or "tesseract")},
-            "failure_inspection": "typed advice and source navigation; no automatic retry; breakpoint debugger deferred",
+            "ocr": {"engine": "optional local Tesseract TSV; no downloads", "executable": shutil.which(value("ocr_executable", "") or os.environ.get("STUDIO_TESSERACT") or "tesseract")},
+            "failure_inspection": "typed advice, persistent history, source navigation; explicit read-only recovery policies",
+            "debugger": "worker-local bdb; private JSON pipes; breakpoint/step/stack/bounded variables; no evaluation console",
+            "scheduler": "SQLite decisions/history; manual/once/interval/daily/weekly; session-only exact-source approval",
+            "projects": "versioned manifest; atomic metadata; search; guarded backup/export/import; no automatic execution",
             "connection_diagnostics": "staged ADB/query/screenshot/video checks; physical device required for final stages",
             "template_scales": "explicit 1–16 values in [0.1, 4]; default 1.0",
             "windows_release": "not built"}
@@ -43,11 +62,23 @@ def main() -> int:
     multiprocessing.freeze_support()
     parser = argparse.ArgumentParser(description="Android Automation Studio Python automation workbench")
     parser.add_argument("--diagnostics", action="store_true")
+    parser.add_argument("--health", action="store_true", help="Check Python, native dependencies and pinned local assets without opening the GUI")
     parser.add_argument("--diagnose-connection", action="store_true", help="Run staged connection checks without opening the GUI")
     parser.add_argument("--serial", help="Exact ADB serial to diagnose; defaults to the only authorized device")
     parser.add_argument("--no-video", action="store_true", help="Skip video in connection diagnostics (NOT VERIFIED)")
     parser.add_argument("--smoke", action="store_true", help="Open real workbench, require Monaco ready, then exit")
     args = parser.parse_args()
+    if args.health:
+        from app.health import dependency_health
+        try:
+            from app.settings import create_store
+            settings = create_store()
+            report = dependency_health(adb_path=settings.value("adb_path", ""), server_path=settings.value("scrcpy_server_path", ""),
+                                       ocr_path=settings.value("ocr_executable", ""))
+        except (ImportError, OSError, RuntimeError):
+            report = dependency_health()
+        print(json.dumps(report, indent=2))
+        return 0 if report["ok"] else 1
     if args.diagnostics:
         print(json.dumps(diagnostics(), indent=2))
         return 0

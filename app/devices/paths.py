@@ -1,6 +1,7 @@
 from pathlib import Path
 import os
 import shutil
+from app.resources import resource_root
 
 
 def adb_executable(configured: str | None = None) -> str:
@@ -13,5 +14,5 @@ def adb_executable(configured: str | None = None) -> str:
         return str(Path(explicit).expanduser())
     if installed := shutil.which("adb"):
         return installed
-    local = Path(__file__).resolve().parents[2] / ".tools/platform-tools" / ("adb.exe" if os.name == "nt" else "adb")
+    local = resource_root() / ".tools/platform-tools" / ("adb.exe" if os.name == "nt" else "adb")
     return str(local) if local.is_file() else "adb"

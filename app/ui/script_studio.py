@@ -1,9 +1,10 @@
 """Host-owned script tabs and a bounded project explorer; one Monaco instance."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import os
 from pathlib import Path
+from uuid import uuid4
 
 from PySide6.QtCore import QSignalBlocker, Qt
 from PySide6.QtWidgets import QHBoxLayout, QTabBar, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
@@ -17,6 +18,7 @@ class Document:
     source: str
     saved: str
     project: Path
+    key: str = field(default_factory=lambda: uuid4().hex)
 
 
 class ScriptTabs(QWidget):
@@ -24,6 +26,7 @@ class ScriptTabs(QWidget):
         super().__init__()
         self.window = window
         self.documents = [Document(None, "", "", window.project_root)]
+        window.editor.set_document_key(self.documents[0].key)
         self.current = 0
         self.switching = False
         layout = QVBoxLayout(self)
@@ -44,7 +47,8 @@ class ScriptTabs(QWidget):
         if self.switching or not 0 <= self.current < len(self.documents):
             return
         w = self.window
-        self.documents[self.current] = Document(w.path, w.editor.source, w.saved_source, w.project_root)
+        self.documents[self.current] = Document(w.path, w.editor.source, w.saved_source, w.project_root,
+                                                self.documents[self.current].key)
         self.bar.setTabText(self.current, (w.path.name if w.path else "Untitled.py") + (" •" if w.editor.source != w.saved_source else ""))
         self.bar.setTabToolTip(self.current, str(w.path or "Unsaved Python buffer"))
 
@@ -65,6 +69,7 @@ class ScriptTabs(QWidget):
             return
         self.current = index
         self.window.path, self.window.saved_source = document.path, document.saved
+        self.window.editor.set_document_key(document.key)
         self.window.editor.set_text(document.source)
         self.window._set_project(document.project)
         self.window._update_title()
@@ -80,6 +85,7 @@ class ScriptTabs(QWidget):
         if len(self.documents) == 1 and current.path is None and current.source == current.saved:
             self.documents[0] = Document(path, source, source, project)
             self.window.path, self.window.saved_source = path, source
+            self.window.editor.set_document_key(self.documents[0].key)
             self.window.editor.set_text(source)
             self.window._set_project(project)
             self.window._update_title()
@@ -97,6 +103,7 @@ class ScriptTabs(QWidget):
         if len(self.documents) == 1:
             self.documents[0] = Document(None, "", "", self.window.project_root)
             self.window.path = None
+            self.window.editor.set_document_key(self.documents[0].key)
             self.window.editor.set_text("")
             self.window.saved_source = ""
             self.window._update_title()

@@ -69,6 +69,8 @@ class _Run:
     cancelled: Any
     activation: Any
     paused: Any
+    debug_writer: Any = None
+    debug_pending: bool = False
 
 
 @dataclass(frozen=True)
@@ -114,6 +116,7 @@ class _ExecutionControl:
         self.project_root = Path(project_root)
         self._excluded_roots = (Path(__file__).resolve().parents[1],
                                 Path(sys.prefix).resolve(), Path(sys.base_prefix).resolve())
+        self.debug_checkpoint = None
         self._paused_acknowledged = False
         self._cancel_delivered = False
         self._traced_files: dict[str, bool] = {}
@@ -159,6 +162,8 @@ class _ExecutionControl:
         if self.cancelled.is_set():
             self._cancel_delivered = True
             raise ScriptCancelled("Cancellation requested")
+        if self.debug_checkpoint is not None:
+            self.debug_checkpoint()
         while self.paused.is_set():
             if not self._paused_acknowledged:
                 self.emit("status", state="paused")
@@ -262,6 +267,7 @@ def _worker(
     source: str, serial: str, backend: Backend, adb_executable: str,
     script_id: str, run_id: str, writer: Connection, cancelled: Any, activation: Any,
     paused: Any, project_root: str, script_directory: str, mock_config: dict | None, simulation_config: dict | None, ocr_config: dict | None,
+    debug_reader: Connection | None = None, breakpoints: list[int] | None = None,
 ) -> None:
     emission_lock = threading.Lock()
     missing_cache = object()
@@ -313,7 +319,14 @@ def _worker(
         with contextlib.redirect_stdout(_EventWriter(emit, "stdout")), contextlib.redirect_stderr(_EventWriter(emit, "stderr")), use_device(context), _main_namespace(script_id, context.bindings()) as namespace:
             execution.checkpoint()
             execution.start_reporting()
-            sys.settrace(execution.trace)
+            debugger = None
+            if debug_reader is not None:
+                from app.automation.debugger import WorkerDebugger
+                debugger = WorkerDebugger(source, script_id, breakpoints or [], debug_reader,
+                                          cancelled, emit, execution, namespace)
+                execution.debug_checkpoint = debugger.checkpoint
+                emit("debug_started", source_hash=debugger.source_hash, breakpoints=breakpoints or [])
+            sys.settrace(debugger.trace if debugger is not None else execution.trace)
             try:
                 exec(compile(source, script_id, "exec"), namespace, namespace)
                 execution.checkpoint()
@@ -348,6 +361,8 @@ def _worker(
         else:
             linecache.cache[script_id] = previous_cache
         writer.close()
+        if debug_reader is not None:
+            debug_reader.close()
 
 
 class RuntimeCoordinator:
@@ -384,6 +399,7 @@ class RuntimeCoordinator:
         backend: Backend = "mock", adb_executable: str = "adb", script_id: str = "<script>",
         control: RunControl | None = None,
         project_root: str | Path | None = None, mock_config: dict | None = None, simulation_config: dict | None = None, ocr_config: dict | None = None,
+        debug: bool = False, breakpoints: list[int] | None = None,
     ) -> str:
         """Run trusted Python on one serial and return a unique run ID.
 
@@ -430,6 +446,12 @@ class RuntimeCoordinator:
             if not isinstance(ocr_config, dict) or set(ocr_config) != {"executable"} or not isinstance(ocr_config["executable"], str) or len(ocr_config["executable"])>4096 or "\x00" in ocr_config["executable"]:
                 raise ValueError("OCR configuration accepts only an explicit executable path")
             ocr_config = dict(ocr_config)
+        if type(debug) is not bool:
+            raise ValueError("debug must be a boolean")
+        from app.automation.debugger import validate_breakpoints
+        breakpoints = validate_breakpoints([] if breakpoints is None else breakpoints, source)
+        if breakpoints and not debug:
+            raise ValueError("Breakpoints require debug mode")
         compile(source, script_id, "exec")
         active = [run for run in self._runs.values() if run.process is not None and run.process.is_alive()]
         if any(run.info.serial == serial for run in active):
@@ -447,10 +469,11 @@ class RuntimeCoordinator:
             # Compatibility for a caller holding an older two-event RunControl.
             control = RunControl(control.cancelled, control.activation, self._context.Event())
         cancelled = control.cancelled
+        debug_reader, debug_writer = self._context.Pipe(duplex=False) if debug else (None, None)
         process = self._context.Process(
             target=_worker,
             args=(source, serial, backend, adb_executable, script_id, run_id, writer, cancelled, control.activation,
-                  control.paused, str(root), str(script_directory), mock_config, simulation_config, ocr_config),
+                  control.paused, str(root), str(script_directory), mock_config, simulation_config, ocr_config, debug_reader, breakpoints),
             name=f"automation-{run_id[:8]}",
         )
         try:
@@ -458,11 +481,16 @@ class RuntimeCoordinator:
         except BaseException:
             reader.close()
             writer.close()
+            if debug_reader is not None:
+                debug_reader.close()
+                debug_writer.close()
             raise
+        if debug_reader is not None:
+            debug_reader.close()
         writer.close()
         # Retain both synchronization objects until the spawn bootstrap has
         # rebuilt them; dropping activation early can unlink its POSIX semaphore.
-        self._runs[run_id] = _Run(RunInfo(run_id, serial, script_id, backend, pid=process.pid), process, reader, cancelled, control.activation, control.paused)
+        self._runs[run_id] = _Run(RunInfo(run_id, serial, script_id, backend, pid=process.pid), process, reader, cancelled, control.activation, control.paused, debug_writer)
         return run_id
 
     def poll(self, limit: int = 256) -> list[dict[str, Any]]:
@@ -486,6 +514,8 @@ class RuntimeCoordinator:
                     event = json.loads(data)
                     if not isinstance(event, dict) or event.get("run_id") != run.info.run_id or event.get("serial") != run.info.serial:
                         raise ValueError("Invalid worker event identity")
+                    if event.get("event") == "debug_ack":
+                        run.debug_pending = False
                     if event.get("event") == "status":
                         state = event.get("state")
                         if state not in TERMINAL_STATES | {"running", "paused"}:
@@ -529,6 +559,9 @@ class RuntimeCoordinator:
                 if run.reader is None:
                     run.process.close()
                     run.process = None
+                    if run.debug_writer is not None:
+                        run.debug_writer.close()
+                        run.debug_writer = None
                     run.cancelled = None
                     run.activation = None
                     run.paused = None
@@ -569,6 +602,24 @@ class RuntimeCoordinator:
             raise RuntimeError(f"Worker {run_id} could not be stopped")
         run.info = replace(run.info, state="cancelled", exitcode=run.process.exitcode)
 
+    def debug_command(self, run_id: str, command: str, **payload: Any) -> None:
+        """Send one bounded private command without blocking a GUI/service tick.
+
+        At most one command may await acknowledgment. The maximum 3072-byte
+        message fits an empty local pipe; no arbitrary command backlog builds up.
+        Poll debug_ack before submitting the next command.
+        """
+        self._check_owner()
+        from app.automation.debugger import command_bytes
+        data = command_bytes(command, payload)
+        run = self._runs[run_id]
+        if run.debug_writer is None or run.process is None or not run.process.is_alive():
+            raise RuntimeError("Run has no active debugger")
+        if run.debug_pending:
+            raise RuntimeError("Wait for the preceding debug command acknowledgment")
+        run.debug_writer.send_bytes(data)
+        run.debug_pending = True
+
     def pause(self, run_id: str) -> None:
         """Request cooperative pause; worker status acknowledges the safe point."""
         self._check_owner()
@@ -577,7 +628,10 @@ class RuntimeCoordinator:
         run = self._runs[run_id]
         if run.process is None or not run.process.is_alive():
             raise RuntimeError("Only an active run can be paused")
-        run.paused.set()
+        if run.debug_writer is not None:
+            self.debug_command(run_id, "pause")
+        else:
+            run.paused.set()
 
     def resume(self, run_id: str) -> None:
         """Resume an active worker; no source or device context is recreated."""
@@ -587,7 +641,10 @@ class RuntimeCoordinator:
         run = self._runs[run_id]
         if run.process is None or not run.process.is_alive():
             raise RuntimeError("Only an active run can be resumed")
-        run.paused.clear()
+        if run.debug_writer is not None:
+            self.debug_command(run_id, "continue")
+        else:
+            run.paused.clear()
 
     def close(self) -> None:
         """Stop owned workers and close all pipe handles. Idempotent."""
@@ -602,6 +659,9 @@ class RuntimeCoordinator:
             if run.process is not None:
                 run.process.close()
                 run.process = None
+            if run.debug_writer is not None:
+                run.debug_writer.close()
+                run.debug_writer = None
             run.cancelled = None
             run.activation = None
             run.paused = None

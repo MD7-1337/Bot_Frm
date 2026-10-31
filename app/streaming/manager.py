@@ -10,6 +10,7 @@ import time
 
 from app.devices.adb import AdbClient, validate_serial
 from app.devices.paths import adb_executable
+from app.resources import resource_root
 from app.streaming.session import ScrcpySession, StreamError, StreamOptions, VideoFrame
 
 
@@ -43,7 +44,7 @@ class StreamManager:
             raise ValueError("max_sessions must be an integer in [1, 16]")
         self.adb = adb or AdbClient(adb_executable())
         self.server_path = Path(server_path or os.environ.get("STUDIO_SCRCPY_SERVER") or
-                                Path(__file__).resolve().parents[2] / ".tools/scrcpy-server-v3.1")
+                                resource_root() / ".tools/scrcpy-server-v3.1")
         self.max_sessions = max_sessions
         self._entries: dict[str, _Entry] = {}
         self._lock = threading.RLock()

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import QSignalBlocker, QSize, Qt
 from PySide6.QtWidgets import (QComboBox, QHBoxLayout, QSplitter, QStackedWidget,
-                              QSizePolicy, QToolButton, QVBoxLayout, QWidget)
+                              QSizePolicy, QTabWidget, QToolButton, QVBoxLayout, QWidget)
 
 from app.ui.components import button, label, surface
 from app.ui.design import icon
@@ -17,8 +17,10 @@ WORKSPACES = {
     "visual": ("Visual Tools", "Capture targets and test recognition against a fresh screen."),
     "recorder": ("Recorder", "Turn studio controls into an editable Python workflow."),
     "monitor": ("Activity & Logs", "Independent runs, errors and output in one place."),
-    "tasks": ("Task Manager", "Scheduling is planned; current execution uses explicit script assignments."),
+    "tasks": ("Task Manager", "Approve source snapshots, schedule device queues and review durable history."),
     "settings": ("Settings", "A local setup that works for your computer and your devices."),
+    "debugger": ("Debugger", "Inspect Python statements and variables in independent device workers."),
+    "projects": ("Projects", "Create, search, back up and exchange your automation projects."),
 }
 
 
@@ -128,6 +130,7 @@ class WorkspaceShell(QWidget):
         split.setSizes([210, 650, 290])
         split.setStretchFactor(1, 1)
         self.splitters["studio_horizontal"] = split
+        self.studio_split = split
         vertical = QSplitter(Qt.Orientation.Vertical)
         vertical.addWidget(split)
         self.execution_slots["studio"] = self.slot()
@@ -160,15 +163,21 @@ class WorkspaceShell(QWidget):
         actions.addStretch()
         monitor_layout.addLayout(actions)
         self.execution_slots["monitor"] = self.slot()
-        monitor_layout.addWidget(self.execution_slots["monitor"], stretch=1)
+        self.monitor_tabs = QTabWidget()
+        self.monitor_tabs.addTab(self.execution_slots["monitor"], "Runs and output")
+        self.monitor_tabs.addTab(window.recovery_panel, "Failure history")
+        monitor_layout.addWidget(self.monitor_tabs, stretch=1)
         self._page("monitor", monitor)
-        tasks, task_layout = surface()
-        task_layout.addWidget(label("Run today. Schedule later.", "workspaceTitle"))
-        task_layout.addWidget(label("Task scheduling and automatic recovery are not implemented in this alpha. No background task is created from this page.", "notice"))
-        task_layout.addWidget(button("Open script assignments", lambda: window.show_workspace("devices"), primary=True))
-        task_layout.addWidget(label("Use Device Manager to select phones. Execution → Assign Python file assigns a script to the current phone. Run assigned files starts independent trusted workers on selected phones."))
-        task_layout.addStretch()
-        self._page("tasks", tasks)
+        self._page("tasks", window.task_panel)
+        self._page("projects", window.project_panel)
+        debug = QSplitter(Qt.Orientation.Vertical)
+        self.debug_editor_slot = self.slot()
+        debug.addWidget(self.debug_editor_slot)
+        debug.addWidget(window.debugger_panel)
+        debug.setSizes([480, 300])
+        debug.setStretchFactor(0, 1)
+        self.splitters["debugger_vertical"] = debug
+        self._page("debugger", debug)
         self.settings_panel = SettingsPanel(window.settings)
         self.settings_panel.apply_requested.connect(window.apply_settings)
         self._page("settings", self.settings_panel)
@@ -197,6 +206,10 @@ class WorkspaceShell(QWidget):
     def switch(self, key):
         if key not in self.pages:
             return
+        if key == "debugger":
+            self.debug_editor_slot.layout().addWidget(self.documents)
+        elif self.current == "debugger":
+            self.studio_split.insertWidget(1, self.documents)
         if key != self.current and key in ("devices", "visual", "recorder"):
             self.preview_on_small = False
         self.current = key

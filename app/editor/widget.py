@@ -3,15 +3,17 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from PySide6.QtCore import QUrl, Signal
+from PySide6.QtCore import QTimer, QUrl, Signal
 from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile, QWebEngineUrlRequestInterceptor, QWebEngineSettings
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import QVBoxLayout, QWidget, QLabel
 
 from app.editor.bridge import EditorBridge
+from app.editor.assets import MonacoAssetsError, validate_monaco
+from app.resources import resource_root
 
-EDITOR_ROOT = Path(__file__).resolve().parents[2] / "editor_web"
+EDITOR_ROOT = resource_root() / "editor_web"
 
 
 class LocalRequests(QWebEngineUrlRequestInterceptor):
@@ -21,24 +23,38 @@ class LocalRequests(QWebEngineUrlRequestInterceptor):
         if url.scheme() == "qrc":
             allowed = url.path() == "/qtwebchannel/qwebchannel.js"
         if url.isLocalFile():
-            allowed = Path(url.toLocalFile()).resolve().is_relative_to(EDITOR_ROOT.resolve())
+            try:
+                allowed = Path(url.toLocalFile()).resolve().is_relative_to(EDITOR_ROOT.resolve())
+            except (OSError, RuntimeError):
+                allowed = False
         info.block(not allowed)
 
 
 class EditorPage(QWebEnginePage):
+    console_error = Signal(str)
+
     def acceptNavigationRequest(self, url, navigation_type, is_main_frame):
         return url == QUrl.fromLocalFile(str(EDITOR_ROOT / "index.html"))
+
+    def javaScriptConsoleMessage(self, level, message, line, source):
+        if level == QWebEnginePage.JavaScriptConsoleMessageLevel.ErrorMessageLevel:
+            self.console_error.emit("Local editor JavaScript error: " + message[:1500])
 
 
 class EditorWidget(QWidget):
     ready = Signal()
     document_changed = Signal(str)
     error = Signal(str)
+    breakpoints_changed = Signal(object)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.source = ""
         self.is_ready = False
+        self._initialization_failed = False
+        self._breakpoints = ()
+        self._document_key = "default"
+        self._document_breakpoints = {}
         self.execution_line = None
         self.run_status = "Idle"
         self.appearance = ("dark", 14)
@@ -55,6 +71,7 @@ class EditorWidget(QWidget):
         self.interceptor = LocalRequests(self.profile)
         self.profile.setUrlRequestInterceptor(self.interceptor)
         self.page = EditorPage(self.profile, self.view)
+        self.page.console_error.connect(self._on_error)
         self.view.setPage(self.page)
         self.page.settings().setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, False)
         self.channel = QWebChannel(self.page)
@@ -64,11 +81,19 @@ class EditorWidget(QWidget):
         self.bridge.ready.connect(self._on_ready)
         self.bridge.changed.connect(self._on_change)
         self.bridge.failed.connect(self._on_error)
+        self.bridge.breakpoints_changed.connect(self._on_breakpoints)
         self.view.loadFinished.connect(self._loaded)
+        self.view.renderProcessTerminated.connect(lambda *_: self._on_error("Editor renderer stopped. Restart the application; run --health if it repeats."))
+        self.startup_timer = QTimer(self)
+        self.startup_timer.setSingleShot(True)
+        self.startup_timer.timeout.connect(lambda: self._on_error("Monaco initialization timed out. Run python -m app.main --health, then repair local assets with python tools/fetch_monaco.py."))
         layout.addWidget(self.view, stretch=1)
-        if not (EDITOR_ROOT / "vendor/vs/loader.js").is_file():
-            self._on_error("Monaco assets missing. Run python tools/fetch_monaco.py.")
+        try:
+            validate_monaco(EDITOR_ROOT)
+        except (MonacoAssetsError, OSError, ValueError) as error:
+            self._on_error(str(error))
         else:
+            self.startup_timer.start(15000)
             self.view.load(QUrl.fromLocalFile(str(EDITOR_ROOT / "index.html")))
 
     def _loaded(self, ok: bool):
@@ -76,12 +101,16 @@ class EditorWidget(QWidget):
             self._on_error("Local editor page could not be loaded")
 
     def _on_ready(self):
+        if self._initialization_failed or self.is_ready:
+            return
+        self.startup_timer.stop()
         self.is_ready = True
         self.status.hide()
         self.set_text(self.source)
         self.set_execution_line(self.execution_line)
         self.set_run_status(self.run_status)
         self.set_appearance(*self.appearance)
+        self.set_breakpoints(self._breakpoints)
         self.ready.emit()
 
     def _on_change(self, source: str):
@@ -89,16 +118,51 @@ class EditorWidget(QWidget):
         self.document_changed.emit(source)
 
     def _on_error(self, message: str):
+        self.startup_timer.stop()
+        self._initialization_failed = True
+        self.is_ready = False
         self.status.setText(message)
         self.status.show()
         self.error.emit(message)
+
+    def _on_breakpoints(self, lines):
+        if isinstance(lines, dict):
+            if lines["key"] != self._document_key:
+                return
+            lines = lines["lines"]
+        self._breakpoints = tuple(lines)
+        self.breakpoints_changed.emit(list(lines))
+
+    def get_breakpoints(self) -> tuple[int, ...]:
+        return self._breakpoints
+
+    @property
+    def breakpoints(self) -> list[int]:
+        return list(self._breakpoints)
+
+    def set_document_key(self, key: str):
+        """Select host-owned source identity before loading another script buffer."""
+        if not isinstance(key, str) or len(key) > 4096:
+            raise ValueError("Document identity must be a bounded string")
+        if key != self._document_key:
+            self._document_breakpoints[self._document_key] = self._breakpoints
+            self._document_key = key
+            self._breakpoints = self._document_breakpoints.get(key, ())
+
+    def set_breakpoints(self, lines):
+        lines = tuple(sorted(set(lines)))
+        if len(lines) > 1000 or any(type(line) is not int or not 1 <= line <= 1_000_000 for line in lines):
+            raise ValueError("Breakpoints require at most 1000 positive source line numbers")
+        self._breakpoints = lines
+        if self.is_ready:
+            self.page.runJavaScript("window.studio.setBreakpoints(" + json.dumps(lines) + "," + json.dumps(self._document_key) + ")")
 
     def set_text(self, source: str):
         if len(source) > 1_000_000:
             raise ValueError("Document exceeds editor size limit")
         self.source = source
         if self.is_ready:
-            self.page.runJavaScript("window.studio.setText(" + json.dumps(source) + ")")
+            self.page.runJavaScript("window.studio.setText(" + json.dumps(source) + "," + json.dumps(self._document_key) + "," + json.dumps(self._breakpoints) + ")")
 
     def insert(self, source: str):
         if self.is_ready:
@@ -134,6 +198,7 @@ class EditorWidget(QWidget):
             self.page.runJavaScript(f"window.studio.editor.setPosition({{lineNumber:{line},column:1}});window.studio.editor.revealLineInCenter({line});window.studio.editor.focus();")
 
     def shutdown(self):
+        self.startup_timer.stop()
         self.page.setWebChannel(None)
         self.view.setPage(None)
         self.page.deleteLater()

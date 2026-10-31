@@ -17,6 +17,7 @@ from test_script_runtime import completed
     (errors.RecognitionTimeout('late'),'recognition'),
     (errors.ImageNotFound('absent'),'recognition'),
     (errors.AmbiguousMatch('two'),'recognition'),
+    (errors.FrameUnavailable('frame'),'frame_capture'),
     (errors.AssetNotFound('missing'),'image_asset'),
     (errors.InvalidAsset('bad'),'image_asset'),
     (errors.OCRUnavailable('not installed'),'ocr_dependency'),

@@ -87,10 +87,12 @@ class ActionRecorder:
         self.actions: list[str] = []
         self.evidence: dict[int, ScreenshotEvidence] = {}
         self.durations: dict[int, float] = {}
+        self.timestamps: dict[int, float] = {}
         self.screen_size = None
         self._session = ""
         self._epoch = 0
         self._last_end = None
+        self._started_at = None
 
     def start(self, serial, generation):
         if self.state != "stopped":
@@ -102,10 +104,12 @@ class ActionRecorder:
         self.actions = []
         self.evidence = {}
         self.durations = {}
+        self.timestamps = {}
         self.screen_size = None
         self._session = uuid4().hex
         self._epoch += 1
         self._last_end = None
+        self._started_at = None
         self.state, self.reason = "recording", "Only completed controls from this studio are recorded"
 
     def stop(self, reason="Stopped by user"):
@@ -141,6 +145,10 @@ class ActionRecorder:
         if error:
             self.stop("Control failed or completion is uncertain; recording stopped")
             return
+        if (isinstance(started, bool) or not isinstance(started, (int, float))
+                or not 0 <= started <= 1e15 or not math.isfinite(started)):
+            self.stop("Control timing is invalid; recording stopped")
+            return
         lines = []
         if self._last_end is not None and started - self._last_end >= .05:
             lines.append(f"sleep({min(started - self._last_end, 86400):.3f})")
@@ -151,6 +159,9 @@ class ActionRecorder:
         self.actions.extend(lines)
         index=len(self.actions)-1
         self.durations[index]=ticket.duration
+        if self._started_at is None:
+            self._started_at = started
+        self.timestamps[index] = max(0., started - self._started_at)
         if (isinstance(evidence,ScreenshotEvidence) and evidence.serial == self.serial
                 and sum(len(item.png) for item in self.evidence.values()) + len(evidence.png) <= MAX_EVIDENCE_BYTES):
             self.evidence[index]=evidence
@@ -184,9 +195,10 @@ class ActionRecorder:
             raise ValueError("Stop a recording before saving its session")
         self.source()
         screenshots={str(index): {"png":base64.b64encode(item.png).decode("ascii"),"size":list(item.size)} for index,item in self.evidence.items() if index<len(self.actions)}
-        payload = json.dumps({"schema_version": 2, "serial": self.serial,
+        payload = json.dumps({"schema_version": 3, "serial": self.serial,
                               "generation": self.generation, "actions": self.actions,
-                              "screen_size":self.screen_size,"durations":self.durations,"evidence":screenshots}, ensure_ascii=False, indent=2)
+                              "screen_size":self.screen_size,"durations":self.durations,
+                              "timestamps":self.timestamps,"evidence":screenshots}, ensure_ascii=False, indent=2)
         if len(payload.encode("utf-8")) > MAX_SESSION_BYTES:
             raise ValueError("Recorder session exceeds 10 MB; split the timeline into smaller sessions")
         return payload
@@ -198,7 +210,7 @@ class ActionRecorder:
             raise ValueError("Recorder sessions must be smaller than 10 MB")
         try:
             data = json.loads(payload)
-            if not isinstance(data, dict) or type(data.get("schema_version")) is not int or data["schema_version"] not in (1,2):
+            if not isinstance(data, dict) or type(data.get("schema_version")) is not int or data["schema_version"] not in (1,2,3):
                 raise ValueError("Unsupported recorder session version")
             serial = (validate_identity if is_simulation(data["serial"]) else validate_serial)(data["serial"])
             generation = data["generation"]
@@ -212,8 +224,9 @@ class ActionRecorder:
                 raise ValueError("Generated Python exceeds the worker's 1 MiB source limit")
             evidence={}
             durations={}
+            timestamps={}
             size=None
-            if data["schema_version"]==2:
+            if data["schema_version"]>=2:
                 size=data.get("screen_size")
                 if size is not None and (not isinstance(size,(list,tuple)) or len(size)!=2 or any(type(x)is not int or not 0<x<=16384 for x in size)):
                     raise ValueError("Invalid recorded screen geometry")
@@ -235,9 +248,20 @@ class ActionRecorder:
                     if not isinstance(index,str) or not index.isdecimal() or not 0<=int(index)<len(actions) or isinstance(duration,bool) or not isinstance(duration,(int,float)) or not 0<=duration<=86400 or not math.isfinite(duration):
                         raise ValueError("Invalid recorded duration")
                     durations[int(index)]=duration
+            if data["schema_version"]>=3:
+                raw_timestamps=data.get("timestamps",{})
+                if not isinstance(raw_timestamps,dict):
+                    raise ValueError("Invalid timestamp map")
+                for index,timestamp in raw_timestamps.items():
+                    if (not isinstance(index,str) or not index.isdecimal() or not 0<=int(index)<len(actions)
+                            or isinstance(timestamp,bool) or not isinstance(timestamp,(int,float))
+                            or not 0<=timestamp<=1e15 or not math.isfinite(timestamp)):
+                        raise ValueError("Invalid recorded timestamp")
+                    timestamps[int(index)]=timestamp
         except (KeyError, TypeError, json.JSONDecodeError, RecursionError) as error:
             raise ValueError("Invalid recorder session data") from error
         # Replace only after all validation; loading data never executes a call.
         self.stop("Loaded session; choose a phone and verify geometry before trusted replay")
         self.serial, self.generation, self.actions = serial, generation, validated
         self.evidence,self.durations,self.screen_size=evidence,durations,size
+        self.timestamps=timestamps

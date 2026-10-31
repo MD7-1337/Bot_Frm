@@ -482,3 +482,11 @@ First run probes dependencies, explains USB debugging and authorization, permits
 PHASES.md defines ordered milestones, test plans and acceptance gates. DECISIONS.md records integration decisions and risks. Phase 0 evidence must separately identify unit fixtures, subprocess/mocked integration, actual Qt/Monaco integration, real phones and clean Windows packaging. A skipped hardware check is not a pass.
 
 For every phase publish: implemented behavior; source modules; run/test commands; current-run results; remaining limitations; and next work. A feature is accepted only with functioning UI/backend, expected error handling, required persistence, meaningful tests and documentation. A page, file, PID, import or empty test suite is insufficient proof.
+# Implementation update — 2026-10-31
+
+The original architecture below is preserved. The current extension keeps spawned
+per-device workers and adds a worker-local stdlib `bdb` debugger over private JSON
+pipes, SQLite task decisions/history, and versioned project archives. The native
+host owns approvals and workspace actions; WebChannel remains editor-only.
+See [DEBUGGING.md](DEBUGGING.md), [TASKS.md](TASKS.md), [PROJECTS.md](PROJECTS.md),
+[RECOVERY.md](RECOVERY.md), and [ALPHA_COMPLETION.md](ALPHA_COMPLETION.md).

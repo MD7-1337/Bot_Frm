@@ -7,7 +7,13 @@ name = "android-automation-studio"
 version = "0.2.0"
 description = "Android Automation Studio — foundational SikuliX-style Python automation"
 requires-python = ">=3.12,<3.13"
-dependencies = ["PySide6==6.8.3", "numpy==2.2.4", "opencv-python-headless==4.11.0.86", "av==14.2.0"]
+dependencies = [
+    "PySide6==6.8.3",
+    "numpy==2.2.4",
+    "opencv-python-headless==4.11.0.86",
+    "av==14.2.0",
+    "tzdata==2026.6",
+]
 
 [project.optional-dependencies]
 test = ["pytest==8.3.5"]

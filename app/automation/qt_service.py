@@ -86,6 +86,7 @@ class RuntimeService(QObject):
         self, source: str, serial: str, *, trusted: bool = False, backend: Backend = "mock",
         adb_executable: str = "adb", script_id: str = "<script>",
         project_root: str | Path | None = None, mock_config: dict | None = None, simulation_config: dict | None = None, ocr_config: dict | None = None,
+        debug: bool = False, breakpoints: list[int] | None = None,
     ) -> str:
         """Queue a trusted script; return request ID without compiling or spawning."""
         if self._emergency_latched.is_set():
@@ -101,6 +102,7 @@ class RuntimeService(QObject):
         return self._submit("start", source=source, serial=serial, trusted=trusted,
                             backend=backend, adb_executable=adb_executable, script_id=script_id,
                             project_root=project_root, mock_config=mock_config, simulation_config=simulation_config, ocr_config=ocr_config,
+                            debug=debug, breakpoints=breakpoints,
                             _connection_generation=generation)
 
     @staticmethod
@@ -157,6 +159,12 @@ class RuntimeService(QObject):
         """Queue resume without blocking Qt or recreating the assigned context."""
         return self._submit("resume", run_id=run_id)
 
+    def debug_command(self, run_id: str, command: str, **payload: Any) -> str:
+        """Queue a bounded debugger command on the coordinator owner thread."""
+        from .debugger import command_bytes
+        command_bytes(command, payload)
+        return self._submit("debug_command", run_id=run_id, debug_action=command, payload=payload)
+
     def emergency_stop(self) -> None:
         """Prioritize cancellation and reject queued/future starts until reset."""
         if self._shutdown.is_set():
@@ -186,10 +194,11 @@ class RuntimeService(QObject):
         self._thread.join(timeout)
         return not self._thread.is_alive()
 
-    def _error(self, command: str, request_id: str, error: BaseException) -> None:
+    def _error(self, command: str, request_id: str, error: BaseException, run_id: str | None = None) -> None:
         message = f"{type(error).__name__}: {error}"[:2048]
         self.event.emit({"event": "request_error", "command": command,
-                         "request_id": request_id, "message": message})
+                         "request_id": request_id, "message": message,
+                         **({"run_id": run_id} if run_id is not None else {})})
         self.failure.emit(message)
 
     def _reject_pending(self, message: str) -> None:
@@ -311,6 +320,9 @@ class RuntimeService(QObject):
                         elif command in {"pause", "resume"}:
                             getattr(runtime, command)(**arguments)
                             response = {"run_id": arguments["run_id"]}
+                        elif command == "debug_command":
+                            runtime.debug_command(arguments["run_id"], arguments["debug_action"], **arguments["payload"])
+                            response = {"run_id": arguments["run_id"]}
                         elif command == "reset_emergency_stop":
                             self._emergency_latched.clear()
                             response = {}
@@ -319,7 +331,7 @@ class RuntimeService(QObject):
                         self.event.emit({"event": "request", "command": command,
                                          "request_id": request_id, **response})
                     except Exception as error:
-                        self._error(command, request_id, error)
+                        self._error(command, request_id, error, arguments.get("run_id"))
 
                 for event in runtime.poll():
                     self.event.emit(event)

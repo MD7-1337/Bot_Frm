@@ -1,5 +1,19 @@
 # Delivery phases, gates and test strategy
 
+## Current development increment — 2026-10-31
+
+The Phase 6 baseline was verified at `0a3e65c` (687 passing tests including 12 GUI
+journeys). Branch `feat/alpha-completion` adds tested worker debugging and bounded
+read-only recovery (Phase 7), persistent scheduling with session approval (Phase 8),
+project preservation/search/archive workflows (Phase 9), and Windows packaging/CI
+recipes plus source smoke/performance evidence (Phase 10). These are substantial
+partial milestones; the full master requirements are not closed. See
+[ALPHA_COMPLETION.md](ALPHA_COMPLETION.md) for actual results, screenshots and
+remaining work. Windows, real phones and release redistribution remain open gates.
+
+The earlier increment descriptions below are historical context; the milestone
+table continues to define the broader acceptance scope.
+
 Latest Phase 6 increment: [PHASE6_VALIDATION.md](PHASE6_VALIDATION.md). Integrated
 stateful offline simulation, optional working Tesseract OCR, image preprocessing,
 RGB/recognition inspector, recorder pre-tap evidence and saved image conversion

@@ -134,7 +134,7 @@ def test_schema_two_preserves_preaction_evidence_geometry_and_duration():
     assert restored.evidence=={0:evidence}
     assert restored.durations=={0:.2}
     assert restored.screen_size==(90,60)
-    assert json.loads(payload)['schema_version']==2
+    assert json.loads(payload)['schema_version']==3
     assert ast.parse(restored.source())
 
 
@@ -183,3 +183,57 @@ def test_conversion_keeps_original_target_offset_and_valid_python():
     for invalid in ('home()', 'tap(x, y)', 'tap(True, 2)', 'tap(2, 3); back()', 'tap(2, 3, extra=1)'):
         with pytest.raises(ValueError): image_target_code(invalid,Region(0,0,80,50),'target.png')
     with pytest.raises(ValueError,match='contain'): image_target_code('tap(90, 30)',Region(0,0,80,50),'target.png')
+
+
+def test_elapsed_timestamps_survive_save_pause_and_load_while_pause_is_excluded_from_delay():
+    import json
+    recorder = ActionRecorder()
+    recorder.start("phone", 1)
+    recorder.complete(recorder.ticket("phone", 1, "home()"), 100)
+    recorder.pause()
+    recorder.resume("phone", 1)
+    recorder.complete(recorder.ticket("phone", 1, "back()"), 200)
+    recorder.stop()
+    assert recorder.actions == ["home()", "back()"]
+    assert recorder.timestamps == {0: 0., 1: 100.}
+    restored = ActionRecorder()
+    restored.load_session(recorder.session_json())
+    assert restored.timestamps == recorder.timestamps
+    assert json.loads(recorder.session_json())["schema_version"] == 3
+
+
+def test_schema_two_still_loads_without_invented_timestamps():
+    import json
+    recorder = ActionRecorder()
+    recorder.start("phone", 1)
+    recorder.complete(recorder.ticket("phone", 1, "home()"), 100)
+    recorder.stop()
+    data = json.loads(recorder.session_json())
+    data["schema_version"] = 2
+    data.pop("timestamps")
+    restored = ActionRecorder()
+    restored.load_session(json.dumps(data))
+    assert restored.actions == recorder.actions and restored.timestamps == {}
+
+
+@pytest.mark.parametrize("timestamp", [float("nan"), float("inf"), True, None, -1, 10**400])
+def test_bad_recording_clock_never_appends_an_action(timestamp):
+    recorder = ActionRecorder()
+    recorder.start("phone", 1)
+    recorder.complete(recorder.ticket("phone", 1, "home()"), timestamp)
+    assert recorder.state == "stopped" and recorder.actions == []
+
+
+@pytest.mark.parametrize("timestamps", [{"0": float("nan")}, {"1": 2}, {"0": -1}, {"0": True}, []])
+def test_bad_persisted_timestamps_are_transactional(timestamps):
+    import json
+    recorder = ActionRecorder()
+    recorder.start("phone", 1)
+    recorder.complete(recorder.ticket("phone", 1, "home()"), 100)
+    recorder.stop()
+    before = recorder.session_json()
+    data = json.loads(before)
+    data["timestamps"] = timestamps
+    with pytest.raises(ValueError):
+        recorder.load_session(json.dumps(data))
+    assert recorder.session_json() == before

@@ -1,5 +1,12 @@
 # Test the Phase 6 alpha on your computer
 
+For the current source increment, use [installation and dependency
+health](INSTALLATION.md) first. `python -m app.main --health` reports missing or
+wrong-version packages, native imports, pinned Monaco files, disk space and
+optional Android/OCR tools without opening the GUI. Settings exposes the same
+background health check. A loader file merely existing is insufficient: the
+editor now verifies all pinned files before loading and reports startup failures.
+
 Windows 10/11 x64 is the final target. The current cloud validation ran on Linux,
 not on Windows or your school computer. A working GUI does not grant USB access.
 You confirmed that the original USB problem was on the PC; use the report below

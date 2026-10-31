@@ -25,15 +25,30 @@ class TestEditor(QWidget):
     """Avoid starting another browser for tests of device/UI state ownership."""
     error = Signal(str)
     document_changed = Signal(str)
+    breakpoints_changed = Signal(object)
 
     def __init__(self):
         super().__init__()
         self.source = ""
         self.is_ready = True
         self.stopped = False
+        self.breakpoints = []
+        self._document_breakpoints = {}
+        self.document_key = "initial"
 
     def set_text(self, source):
         self.source = source
+
+    def set_document_key(self, key):
+        self._document_breakpoints[self.document_key] = list(self.breakpoints)
+        self.document_key = key
+        self.breakpoints = list(self._document_breakpoints.get(key, []))
+
+    def set_breakpoints(self, lines):
+        self.breakpoints = list(lines)
+
+    def get_breakpoints(self):
+        return tuple(self.breakpoints)
 
     def shutdown(self):
         self.stopped = True

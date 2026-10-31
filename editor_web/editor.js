@@ -1,7 +1,24 @@
 /* Local editor assistance. This bridge never executes scripts or device actions. */
 "use strict";
-new QWebChannel(qt.webChannelTransport, function (channel) {
+function startupFailure(message) {
+    const element = document.getElementById("startup-error");
+    if (element) { element.textContent = message; element.hidden = false; }
+    console.error(message);
+}
+if (typeof QWebChannel !== "function" || typeof qt === "undefined" || !qt.webChannelTransport) {
+    startupFailure("Local QWebChannel did not initialize. Run python -m app.main --health.");
+} else new QWebChannel(qt.webChannelTransport, function (channel) {
     const bridge = channel.objects.editorBridge;
+    function fail(message) {
+        const detail = "Monaco initialization failed: " + String(message) + ". Repair: python tools/fetch_monaco.py";
+        startupFailure(detail);
+        bridge.reportError(detail);
+    }
+    if (typeof window.require !== "function" || typeof window.require.config !== "function") {
+        fail("local AMD loader is missing, invalid or blocked");
+        return;
+    }
+    window.addEventListener("unhandledrejection", event => fail(event.reason));
     window.addEventListener("error", event => bridge.reportError(String(event.message)));
     window.MonacoEnvironment = { getWorkerUrl: function () {
         const base = new URL("vendor/vs/", window.location.href).href;
@@ -21,6 +38,32 @@ new QWebChannel(qt.webChannelTransport, function (channel) {
             let references = [];
             let imageDecorations = [];
             let executionDecorations = [];
+            let breakpointDecorations = [];
+            let changingDocument = false;
+            function breakpointLines() {
+                return [...new Set(breakpointDecorations.map(id => editor.getModel().getDecorationRange(id))
+                    .filter(Boolean).map(range => range.startLineNumber))].sort((a,b) => a-b);
+            }
+            function reportBreakpoints() {
+                window.studio.breakpoints = breakpointLines();
+                bridge.breakpointsChanged(JSON.stringify({key: window.studio.documentKey, lines: window.studio.breakpoints}));
+            }
+            function setBreakpoints(lines, key) {
+                if (key !== undefined && key !== window.studio.documentKey) return;
+                const valid = [...new Set(lines)].filter(line => Number.isInteger(line) && line > 0 && line <= editor.getModel().getLineCount()).slice(0, 1000);
+                breakpointDecorations = editor.deltaDecorations(breakpointDecorations, valid.map(line => ({
+                    range: new monaco.Range(line, 1, line, 1),
+                    options: {glyphMarginClassName:"studio-breakpoint", glyphMarginHoverMessage: {value:"Click to remove breakpoint"},
+                        stickiness:monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges}
+                })));
+                reportBreakpoints();
+            }
+            editor.onMouseDown(event => {
+                if (event.target.type !== monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN || !event.target.position) return;
+                const line = event.target.position.lineNumber;
+                const lines = breakpointLines();
+                setBreakpoints(lines.includes(line) ? lines.filter(value => value !== line) : [...lines, line]);
+            });
             let imageRequest = 0;
             let debounce;
             const markdown = text => ({value: text, supportHtml: false, isTrusted: false});
@@ -148,6 +191,7 @@ new QWebChannel(qt.webChannelTransport, function (channel) {
 
             function changed() {
                 setExecutionLine(null);
+                if (!changingDocument) reportBreakpoints();
                 bridge.documentChanged(editor.getValue());
                 clearTimeout(debounce);
                 debounce = setTimeout(() => {
@@ -164,8 +208,14 @@ new QWebChannel(qt.webChannelTransport, function (channel) {
             }
             editor.onDidChangeModelContent(changed);
             window.studio = {
+                documentKey: "default", breakpoints: [], setBreakpoints,
                 editor, apiCatalog: catalog, imageReferences: references, executionLine: null, runStatus: "Idle",
-                setText: source => editor.setValue(source), getText: () => editor.getValue(),
+                setText: (source, key, lines) => {
+                    window.studio.documentKey = key === undefined ? window.studio.documentKey : key;
+                    changingDocument = true;
+                    try { editor.setValue(source); } finally { changingDocument = false; }
+                    setBreakpoints(lines || []);
+                }, getText: () => editor.getValue(),
                 insert: source => editor.executeEdits("automation-tool", [{range: editor.getSelection(), text: source, forceMoveMarkers: true}]),
                 completionItems, signatureAt, hoverAt, refreshImages, setExecutionLine,
                 setRunStatus: status => { window.studio.runStatus = status; },
@@ -178,5 +228,5 @@ new QWebChannel(qt.webChannelTransport, function (channel) {
             setInterval(refreshImages, 3000);
             bridge.editorReady();
         });
-    }, error => bridge.reportError(String(error)));
+    }, fail);
 });

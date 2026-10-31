@@ -57,6 +57,28 @@ class Job(QRunnable):
             self.signals.done.emit(self, None, str(error))
 
 
+class UnavailableScheduler:
+    """Disabled lifecycle hooks when the preserved task database cannot open."""
+    paused = True
+
+    def tick(self):
+        return None
+
+    def handle_event(self, event):
+        return None
+
+    def set_busy_serials(self, states):
+        return None
+
+    def pause(self):
+        return None
+
+    emergency_stop = pause
+
+    def revoke_device(self, serial):
+        return None
+
+
 class StudioWindow(QMainWindow):
     """Workspace controller; transport, decoding and trusted scripts run outside Qt callbacks."""
     diagnostic_progress = Signal(object)
@@ -118,6 +140,7 @@ class StudioWindow(QMainWindow):
         self._request_documents: dict[str, dict] = {}
         self._run_documents: dict[str, dict] = {}
         self._run_lines: dict[str, tuple[str, int]] = {}
+        self._task_connections = {}
         self.saved_source = ""
         self.editor = EditorWidget()
         self.project_label = QLabel(f"Project: {self.project_root}")
@@ -194,9 +217,54 @@ class StudioWindow(QMainWindow):
         self.editor.error.connect(self.log)
         self.editor.document_changed.connect(lambda _: self._update_title())
         self._build_actions()
+        from app.tasks.store import TaskStore
+        from app.tasks.scheduler import TaskScheduler
+        from app.ui.task_panel import TaskPanel
+        from app.ui.project_panel import ProjectPanel
+        from app.ui.debugger_panel import DebuggerPanel
+        from app.automation.recovery_journal import RecoveryJournal
+        from app.ui.recovery_panel import RecoveryPanel
+        data_root = Path(os.environ.get("STUDIO_DATA_DIR") or
+                         QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppLocalDataLocation))
+        try:
+            self.recovery_journal = RecoveryJournal(data_root / "failures.sqlite3")
+            self.recovery_panel = RecoveryPanel(self.recovery_journal)
+        except Exception as error:
+            self.recovery_journal = None
+            self.recovery_panel = QLabel(f"Failure history unavailable: {error}\nThe database was preserved. Check storage/permissions or restore a backup.")
+            self.recovery_panel.setWordWrap(True)
+        try:
+            self.task_store = TaskStore(data_root / "tasks.sqlite3")
+            self.scheduler = TaskScheduler(self.task_store, self._dispatch_task, self.runtime.cancel,
+                lambda serial: self._device_available(serial) and not self.busy(serial) and not self._closing
+                    and not self._emergency_latched,
+                max_concurrency=integer(self.settings, "worker_limit", 4, 1, 8))
+            self.task_panel = TaskPanel(self.task_store, self.scheduler, self._task_source,
+                                       authorize_callback=self._authorize_task)
+        except Exception as error:
+            self.task_store = None
+            self.scheduler = UnavailableScheduler()
+            self.task_panel = QLabel(f"Scheduling unavailable: {error}\nThe database was preserved. Check storage/permissions or restore a backup. Editing and manual runs remain available.")
+            self.task_panel.setWordWrap(True)
+        self.project_panel = ProjectPanel(self)
+        self.project_panel.project_opened.connect(self._set_project)
+        self.project_panel.source_selected.connect(self._project_search_result)
+        self.debugger_panel = DebuggerPanel()
+        self.debugger_panel.start_requested.connect(self.debug_script)
+        self.debugger_panel.command_requested.connect(self._debug_command)
+        self.debugger_panel.stop_requested.connect(lambda run: self.runtime.cancel(run))
+        self.debugger_panel.runs.currentIndexChanged.connect(lambda _: self._show_execution_line())
+        self.debugger_panel.breakpoints_changed.connect(self._set_debug_breakpoints)
+        self.debugger_panel.source_requested.connect(self._debug_source)
+        self.editor.breakpoints_changed.connect(self._debug_breakpoints)
         self.shell = WorkspaceShell(self)
         self.shell.settings_panel.check_ocr_requested.connect(self.check_ocr)
+        self.shell.settings_panel.check_health_requested.connect(self.check_health)
         self.setCentralWidget(self.shell)
+        self.project_panel.set_project(self.project_root)
+        self.task_timer = QTimer(self)
+        self.task_timer.timeout.connect(self._scheduler_tick)
+        self.task_timer.start(500)
         self.device_manager.settings_requested.connect(lambda: self.show_workspace("settings"))
         self.editor.set_project_root(self.project_root)
         self.refresh_assets()
@@ -234,7 +302,7 @@ class StudioWindow(QMainWindow):
         if discover:
             self.discovery_timer.start(integer(self.settings, "discovery_seconds", 3, 1, 15) * 1000)
         self.log("Scripting engine: project image targets, isolated device contexts, cancellable waits and pause/resume.")
-        self.log("Real-phone and Windows compatibility still require hardware validation. Debugger, OCR and scheduler are later phases.")
+        self.log("Debugger, tasks, project archives and optional OCR are available. Real-phone and Windows acceptance remain NOT VERIFIED.")
         if discover:
             QTimer.singleShot(0, self.refresh_devices)
 
@@ -275,7 +343,8 @@ class StudioWindow(QMainWindow):
         workspace_menu = self.menuBar().addMenu("&Workspaces")
         for index, (label, key) in enumerate((("Script Studio", "studio"), ("Device Manager", "devices"),
                  ("Screenshot & Visual Tools", "visual"), ("Action Recorder", "recorder"),
-                 ("Activity & Logs", "monitor"), ("Task Manager", "tasks"), ("Settings", "settings")), 1):
+                 ("Activity & Logs", "monitor"), ("Task Manager", "tasks"), ("Settings", "settings"),
+                 ("Debugger", "debugger"), ("Projects", "projects")), 1):
             self.actions[key] = self._action(workspace_menu, label, lambda checked=False, name=key: self.show_workspace(name), f"Ctrl+{index}")
         file_menu = self.menuBar().addMenu("&File")
         self.actions["new"] = self._action(file_menu, "New Python script", self.new_script, QKeySequence.StandardKey.New)
@@ -286,6 +355,7 @@ class StudioWindow(QMainWindow):
         execution_menu = self.menuBar().addMenu("&Execution")
         self.run_action = self._action(execution_menu, "Run trusted script…", self.run_script, "F5")
         self.actions["run"] = self.run_action
+        self.actions["debug"] = self._action(execution_menu, "Debug trusted script…", self.debug_script, "F9")
         self.actions["pause"] = self._action(execution_menu, "Pause run", lambda: self._control_run("pause"), "F6")
         self.actions["resume"] = self._action(execution_menu, "Resume run", lambda: self._control_run("resume"), "Shift+F6")
         self.actions["stop"] = self._action(execution_menu, "Stop run", lambda: self._control_run("cancel"), "Shift+F5")
@@ -344,10 +414,11 @@ class StudioWindow(QMainWindow):
         self._action(view_menu, "Reset layout", lambda: self.shell.reset())
         self._action(view_menu, "Command palette…", self.command_palette, "Ctrl+Shift+P")
         help_menu = self.menuBar().addMenu("&Help")
+        self._action(help_menu, "Dependency health…", self.check_health)
         self._action(help_menu, "Connection troubleshooting", self.diagnose_connection)
         self._action(help_menu, "Scripting capabilities", lambda: QMessageBox.information(self, "Alpha capabilities",
             "Available: Python image automation, Monaco, serial-bound workers, ADB/scrcpy previews, capture, recognition, diagnostics and studio-control recording.\n\n"
-            "Offline simulation, image/color recognition and optional local Tesseract OCR are available. Real phones and Windows still require runtime validation. Scheduling and breakpoint debugging remain deferred. See docs/PHASE6_VALIDATION.md."))
+            "Offline simulation, recognition, optional Tesseract OCR, debugger, persistent tasks and project archives are available. Scheduled source requires explicit session approval. Real phones and Windows still require acceptance validation. See docs/ALPHA_COMPLETION.md."))
 
     def log(self, message):
         self.logs.appendPlainText(time.strftime("%H:%M:%S ") + str(message))
@@ -432,6 +503,7 @@ class StudioWindow(QMainWindow):
         if not serial or self._demo_pending:
             self.notify("Select an active simulated session to reset.")
             return
+        self._revoke_scheduled_device(serial)
         self.runtime.invalidate_device(serial)
         self._connection_token(serial).set()
         self.preview.clear()
@@ -455,6 +527,7 @@ class StudioWindow(QMainWindow):
         serial = self.active_simulation
         if not serial or self._demo_pending:
             return
+        self._revoke_scheduled_device(serial)
         self.runtime.invalidate_device(serial)
         self._connection_token(serial).set()
         self._preview_modes[serial] = "stopped"
@@ -599,6 +672,8 @@ class StudioWindow(QMainWindow):
         can_input = idle and not self._emergency_latched
         self.device_manager.set_available(available, not idle)
         self.run_action.setEnabled(can_input and self.editor.is_ready)
+        self.actions["debug"].setEnabled(can_input and self.editor.is_ready)
+        self.debugger_panel.start_button.setEnabled(can_input and self.editor.is_ready)
         phones = self._selected_phones()
         group_idle = bool(phones) and all(not self.busy(phone) for phone in phones) and not self._emergency_latched
         self.actions["run_selected"].setEnabled(group_idle and self.editor.is_ready)
@@ -1095,6 +1170,32 @@ class StudioWindow(QMainWindow):
         self._submit(lambda: TesseractOCR(executable).status(),
                      lambda result,error: panel.ocr_status.setText(error or result))
 
+    def check_health(self):
+        """Probe dependencies off the GUI thread without installing anything."""
+        from app.health import dependency_health
+        self.notify("Checking local dependencies…")
+        def finished(report, error):
+            if error:
+                self.notify(f"Dependency health check failed: {error}")
+                return
+            dialog = QDialog(self)
+            dialog.setWindowTitle("Dependency health · local report")
+            dialog.resize(760, 560)
+            layout = QVBoxLayout(dialog)
+            detail = QPlainTextEdit()
+            detail.setReadOnly(True)
+            detail.setPlainText(json.dumps(report, indent=2, ensure_ascii=False))
+            detail.setAccessibleName("Dependency checks and repair commands")
+            layout.addWidget(detail)
+            from app.ui.components import button
+            layout.addWidget(button("Copy report", lambda: QApplication.clipboard().setText(detail.toPlainText())))
+            layout.addWidget(button("Close", dialog.accept))
+            dialog.exec()
+        paths = {"adb_path": self.settings.value("adb_path", ""),
+                 "server_path": self.settings.value("scrcpy_server_path", ""),
+                 "ocr_path": self.settings.value("ocr_executable", "")}
+        self._submit(lambda: dependency_health(**paths), finished)
+
     def inspect_recognition(self):
         serial = self.selected_serial()
         root = self.project_root
@@ -1146,6 +1247,7 @@ class StudioWindow(QMainWindow):
                 continue
             self._observed_generations[device.serial] = signature
             if not device.available:
+                self._revoke_scheduled_device(device.serial)
                 self._screen_info.pop(device.serial, None)
                 self._android_versions.pop(device.serial, None)
                 if self.recorder.serial == device.serial and self.recorder.state != "stopped":
@@ -1518,6 +1620,7 @@ class StudioWindow(QMainWindow):
         self.project_label.setToolTip(str(root))
         if hasattr(self, "shell"):
             self.shell.project.refresh()
+            self.project_panel.set_project(root)
         self.refresh_assets()
         self.log(f"Image library: {root / 'images'} · project: {root}")
 
@@ -1629,6 +1732,120 @@ class StudioWindow(QMainWindow):
         serial = self.selected_serial()
         self._approve_and_run([(serial, self.editor.source, str(self.path or "<editor>"), self.project_root)])
 
+    def debug_script(self):
+        self.show_workspace("debugger")
+        self._approve_and_run([(self.selected_serial(), self.editor.source,
+                                str(self.path or "<editor>"), self.project_root)], debug=True)
+
+    def _project_search_result(self, path, line):
+        self.open_script_path(Path(path))
+        self.show_workspace("studio")
+        self.editor.reveal_line(line)
+
+    def _debug_command(self, run_id, command, payload):
+        try:
+            self.runtime.debug_command(run_id, command, **payload)
+        except Exception as error:
+            self.debugger_panel.command_failed(run_id, str(error))
+
+    def _debug_source(self, path, line, source_hash):
+        import hashlib
+        document = self._run_documents.get(self.debugger_panel.selected_run())
+        if (not document or document["script_id"] != path or str(self.path or "<editor>") != path
+                or document.get("document_key") != getattr(self.editor, "_document_key", None)
+                or self.editor.source != document["source"]
+                or hashlib.sha256(self.editor.source.encode("utf-8")).hexdigest() != source_hash):
+            self.notify("This frame refers to another file or source snapshot. Current edits were preserved; inspect the stack path.")
+            return
+        self.editor.reveal_line(line)
+
+    def _set_debug_breakpoints(self, lines):
+        self.editor.set_breakpoints(lines)
+        if not self.editor.is_ready:
+            self._debug_breakpoints(lines)
+
+    def _debug_breakpoints(self, lines):
+        self.debugger_panel.set_breakpoints(lines, getattr(self.editor, "_document_key", None))
+        # Breakpoint edits affect only the exact currently executed snapshot.
+        for run in self.run_states:
+            document = self._run_documents.get(run.run_id)
+            if (run.exitcode is None and run.run_id in self.debugger_panel.sessions and document
+                    and document.get("document_key") == getattr(self.editor, "_document_key", None)
+                    and document["source"] == self.editor.source
+                    and document["script_id"] == str(self.path or "<editor>")):
+                self._debug_command(run.run_id, "set_breakpoints", {"lines": list(lines)})
+
+    def _task_source(self):
+        serial = self.selected_serial()
+        if not serial or not self._device_available(serial):
+            raise ValueError("Select an available device before creating a task")
+        return {"source": self.editor.source, "serial": serial,
+                "script_id": str(self.path or "<editor>"), "project_root": str(self.project_root)}
+
+    def _authorize_task(self, task, confirm):
+        serial = task.serial
+        token = self._connection_token(serial)
+        if self._closing or self._emergency_latched or not self._device_available(serial) or token.is_set():
+            self.notify("Select an available task device and reset emergency stop before approving.")
+            return False
+        if not confirm():
+            return False
+        if (self._closing or self._emergency_latched or not self._device_available(serial)
+                or token.is_set() or self._connection_token(serial) is not token):
+            self.notify("The device connection changed during approval. Review and approve the task again.")
+            return False
+        self.runtime.allow_device(serial)
+        self._task_connections[task.task_id] = token
+        return True
+
+    def _dispatch_task(self, task):
+        serial = task.serial
+        token = self._task_connections.get(task.task_id)
+        if (token is None or token.is_set() or self._connection_token(serial) is not token
+                or self._closing or self._emergency_latched or self.busy(serial)
+                or not self._device_available(serial)):
+            raise RuntimeError("Task authorization is obsolete or the device is busy/unavailable")
+        if self.recorder.serial == serial and self.recorder.state != "stopped":
+            self.stop_recording("Scheduled script started; studio controls are blocked")
+        if self.preview.frame and self.preview.frame.serial == serial:
+            self.preview.cancel_input()
+        if serial in self.live_panel.tiles:
+            self.live_panel.tiles[serial][1].cancel_input()
+        simulation = is_simulation(serial)
+        options = {"simulation_config": self.simulations.config(serial)} if simulation else {}
+        if executable := self.settings.value("ocr_executable", ""):
+            options["ocr_config"] = {"executable": executable}
+        request_id = self.runtime.start(task.source, serial, trusted=True,
+            backend="simulation" if simulation else "adb", adb_executable=self.adb.executable,
+            script_id=task.script_id, project_root=task.project_root, **options)
+        self.pending_runs[request_id] = serial
+        self._request_documents[request_id] = {"source": task.source, "script_id": task.script_id,
+            "project_root": task.project_root,
+            "document_key": self._matching_document(task.source, task.script_id, task.project_root)}
+        return request_id
+
+    def _matching_document(self, source, script_id, root):
+        if (source == self.editor.source and script_id == str(self.path or "<editor>")
+                and Path(root).resolve() == self.project_root):
+            return getattr(self.editor, "_document_key", None)
+        return None
+
+    def _scheduler_tick(self):
+        if self._closing:
+            return
+        try:
+            self.scheduler.tick()
+        except Exception as error:
+            self.scheduler.pause()
+            self.notify(f"Scheduling paused after a persistence/dispatch error: {error}")
+
+    def _revoke_scheduled_device(self, serial):
+        if getattr(self, "task_store", None) is not None:
+            self.scheduler.revoke_device(serial)
+            for task in self.task_store.tasks():
+                if task.serial == serial:
+                    self._task_connections.pop(task.task_id, None)
+
     def _selected_phones(self):
         if self.active_simulation:
             return [self.selected_serial()] if self.selected_serial() else []
@@ -1670,17 +1887,22 @@ class StudioWindow(QMainWindow):
             return
         self._approve_and_run(requests)
 
-    def _approve_and_run(self, requests):
+    def _approve_and_run(self, requests, *, debug=False):
         if not self.editor.is_ready or not requests or self._closing or self._emergency_latched:
             self.log("Wait for the editor and select available phones; reset emergency stop before running.")
             return
+        debug_lines = list(self.editor.breakpoints) if debug else []
         try:
+            connections = {}
+            document_keys = {}
             for serial, source, script_id, root in requests:
                 if not serial or not self._device_available(serial) or self.busy(serial):
                     raise ValueError(f"Select an idle authorized phone: {serial or 'none'}")
                 if script_id != "<editor>" and not Path(script_id).resolve().is_relative_to(Path(root).resolve()):
                     raise ValueError("Open or save the script inside the active project before running")
                 compile(source, script_id, "exec")
+                connections[serial] = self._connection_token(serial)
+                document_keys[serial] = self._matching_document(source, script_id, root)
         except (ValueError, SyntaxError) as error:
             self.log(str(error))
             return
@@ -1695,7 +1917,8 @@ class StudioWindow(QMainWindow):
             try:
                 # The modal trust dialog processes Qt timers. Revalidate each
                 # phone, but execute exactly the source snapshot that was approved.
-                if self.busy(serial) or not self._device_available(serial) or self._closing or self._emergency_latched:
+                if (self.busy(serial) or not self._device_available(serial) or self._closing or self._emergency_latched
+                        or connections[serial].is_set() or self._connection_token(serial) is not connections[serial]):
                     raise RuntimeError(f"Phone {serial} became unavailable or busy; no run queued")
                 self.runtime.allow_device(serial)
                 if self.recorder.serial == serial and self.recorder.state != "stopped":
@@ -1706,17 +1929,24 @@ class StudioWindow(QMainWindow):
                     self.live_panel.tiles[serial][1].cancel_input()
                 simulation = is_simulation(serial)
                 options = {"simulation_config": self.simulations.config(serial)} if simulation else {}
+                if debug:
+                    options.update(debug=True, breakpoints=debug_lines)
                 if configured_ocr := self.settings.value("ocr_executable", ""):
                     options["ocr_config"] = {"executable": configured_ocr}
                 request_id = self.runtime.start(source, serial, trusted=True, backend="simulation" if simulation else "adb",
                     adb_executable=self.adb.executable, script_id=script_id, project_root=str(root), **options)
                 self.pending_runs[request_id] = serial
-                self._request_documents[request_id] = {"source": source, "script_id": script_id, "project_root": str(root)}
+                self._request_documents[request_id] = {"source": source, "script_id": script_id,
+                    "project_root": str(root), "document_key": document_keys[serial]}
                 self.log(f"Queued run request {request_id} on {serial}")
             except Exception as error:
                 self.log(str(error))
 
     def _active_run_id(self):
+        if hasattr(self, "shell") and self.shell.current == "debugger":
+            selected = self.debugger_panel.selected_run()
+            if selected:
+                return selected
         selected = self.execution_panel.selected_run()
         if selected:
             return selected
@@ -1746,6 +1976,7 @@ class StudioWindow(QMainWindow):
         self.editor.set_run_status(state)
         expected_path = str(self.path or "<editor>")
         if (document and location and document["source"] == self.editor.source
+                and document.get("document_key") == getattr(self.editor, "_document_key", None)
                 and document["script_id"] == expected_path and location[0] == expected_path
                 and run and run.exitcode is None):
             self.editor.set_execution_line(location[1])
@@ -1753,12 +1984,25 @@ class StudioWindow(QMainWindow):
             self.editor.set_execution_line(None)
 
     def _runtime_event(self, event):
+        if self._shutdown_complete:
+            return
+        self.scheduler.handle_event(event)
+        self.debugger_panel.on_event(event)
+        if event.get("event") == "error":
+            self._persist_failure(event)
+        if event.get("event") == "debug_stopped":
+            self._run_lines[event["run_id"]] = (event["source_path"], event["line"])
+            self._show_execution_line()
+            self.log(f"Debugger stopped: {event.get('reason')} at {event['source_path']}:{event['line']}")
+            return  # Variable values belong only in the debugger inspector.
         self.execution_panel.on_event(event)
         if event.get("event") == "line":
             self._run_lines[event["run_id"]] = (event["source_path"], event["line"])
             self._show_execution_line()
             return
         if event.get("event") == "request_error":
+            if event.get("command") == "debug_command":
+                self.debugger_panel.command_failed(event.get("run_id"), event.get("message", "Debug command failed"))
             self.pending_runs.pop(event.get("request_id"), None)
             self.pending_run_ids.pop(event.get("request_id"), None)
             self._request_documents.pop(event.get("request_id"), None)
@@ -1799,8 +2043,44 @@ class StudioWindow(QMainWindow):
         self.editor.reveal_line(line)
         self.notify(self.execution_panel.failure_detail(event))
 
+    def _persist_failure(self, event):
+        if self.recovery_journal is None:
+            return
+        serial = event.get("serial")
+        token = self._connection_token(serial)
+        capture = bool(getattr(self.recovery_panel, "capture_failures", None)
+                       and self.recovery_panel.capture_failures.isChecked())
+        def same_failure_context():
+            return (not token.is_set() and self._connection_token(serial) is token
+                    and serial not in self.pending_runs.values()
+                    and not any(run.serial == serial and run.run_id != event.get("run_id")
+                                and run.exitcode is None for run in self.run_states))
+        def operation():
+            evidence = None
+            if capture and same_failure_context() and self._device_available(serial):
+                try:
+                    frame = self.capture_device(serial)
+                    if same_failure_context() and frame.serial == serial:
+                        evidence = ScreenshotEvidence(serial=serial, png=frame.png, size=(frame.width, frame.height))
+                except Exception:
+                    pass  # Preserve the failure even when capture is unavailable.
+            return self.recovery_journal.record_event(event, evidence)
+        def finished(record_id, error):
+            if error:
+                self.log(f"Failure history could not be saved: {error}")
+            else:
+                try:
+                    self.recovery_panel.refresh()
+                except Exception as refresh_error:
+                    self.log(f"Failure history could not be read: {refresh_error}")
+        self._submit(operation, finished)
+
     def _runtime_snapshot(self, states):
+        if self._shutdown_complete:
+            return
         self.run_states = list(states)
+        self.scheduler.set_busy_serials(self.run_states)
+        self.debugger_panel.update_runs(self.run_states)
         self.execution_panel.update_runs(self.run_states)
         self._release_confirmed_runs()
         self._show_execution_line()
@@ -1817,6 +2097,8 @@ class StudioWindow(QMainWindow):
 
     def emergency_stop(self):
         self._emergency_latched = True
+        self.scheduler.emergency_stop()
+        self._task_connections.clear()
         if self.recorder.state != "stopped":
             self.stop_recording("Emergency stop")
         self._manual_cancel.set()
@@ -1841,6 +2123,10 @@ class StudioWindow(QMainWindow):
             event.ignore()
             return
         self._closing = True
+        self.scheduler.pause()
+        self.task_timer.stop()
+        if hasattr(self.task_panel, "timer"):
+            self.task_panel.timer.stop()
         self._diagnostic_cancel.set()
         if self.recorder.state != "stopped":
             self.stop_recording("Window closing")
@@ -1864,6 +2150,8 @@ class StudioWindow(QMainWindow):
             QTimer.singleShot(100, self.close)
             return
         self.simulations.close()
+        if self.task_store is not None:
+            self.task_store.close()
         self.editor.shutdown()
         self._shutdown_complete = True
         event.accept()

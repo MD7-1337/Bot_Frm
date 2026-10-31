@@ -4,6 +4,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QGridLayout, QHeade
                               QDoubleSpinBox, QHBoxLayout, QSizePolicy, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
 import ast
+import math
 from app.ui.design import icon
 
 
@@ -95,7 +96,7 @@ class RecorderPanel(QWidget):
             row = self.table.rowCount()
             self.table.insertRow(row)
             item=QTableWidgetItem(code)
-            item.setData(Qt.ItemDataRole.UserRole,{"evidence":self.recorder.evidence.get(row),"duration":self.recorder.durations.get(row,0.)})
+            item.setData(Qt.ItemDataRole.UserRole,{"evidence":self.recorder.evidence.get(row),"duration":self.recorder.durations.get(row,0.),"timestamp":self.recorder.timestamps.get(row)})
             self.table.setItem(row, 0, item)
         self._rendered_count = len(self.recorder.actions)
         self.status.setText(f"{self.recorder.state} · {self.recorder.serial or 'no phone'}\n{self.recorder.reason}")
@@ -123,12 +124,16 @@ class RecorderPanel(QWidget):
                    for row in range(self.table.rowCount())]
         evidence={}
         durations={}
+        timestamps={}
         for row in range(self.table.rowCount()):
             metadata=self.table.item(row,0).data(Qt.ItemDataRole.UserRole) or {}
             if metadata.get("evidence") is not None:
                 evidence[row]=metadata["evidence"]
             durations[row]=metadata.get("duration",0.)
+            if metadata.get("timestamp") is not None:
+                timestamps[row]=metadata["timestamp"]
         self.recorder.actions,self.recorder.evidence,self.recorder.durations = actions,evidence,durations
+        self.recorder.timestamps=timestamps
         self._rendered_count = len(actions)
         return self.recorder.source()
 
@@ -166,7 +171,14 @@ class RecorderPanel(QWidget):
             call=ast.parse(code).body[0].value
             kind=call.func.id if isinstance(call.func,ast.Name) else "call"
             if kind in ("sleep","wait") and call.args and isinstance(call.args[0],ast.Constant) and type(call.args[0].value) in (int,float):
-                duration=call.args[0].value
+                candidate=call.args[0].value
+                if 0 <= candidate <= 86400 and math.isfinite(candidate):
+                    duration=candidate
+                else:
+                    # Preserve editable source while keeping saved metadata
+                    # finite/loadable. The worker will reject invalid delays.
+                    kind="invalid delay"
+                    duration=0.
             if kind in ("click","find","waitImage") and call.args and isinstance(call.args[0],ast.Constant):
                 target=str(call.args[0].value)
         except (SyntaxError,AttributeError,IndexError):
@@ -196,7 +208,9 @@ class RecorderPanel(QWidget):
                 eligible=isinstance(call,ast.Call) and isinstance(call.func,ast.Name) and call.func.id=="tap"
             except (SyntaxError,IndexError,AttributeError):
                 pass
-            self.step_info.setText(f"Step {row+1} · {self.recorder.serial or 'no recorded device'} · " +
+            recorded_at = metadata.get("timestamp")
+            timing = f"recorded at +{recorded_at:.3f}s · " if recorded_at is not None else ""
+            self.step_info.setText(f"Step {row+1} · {self.recorder.serial or 'no recorded device'} · {timing}" +
                                    (f"pre-tap screenshot {evidence.size[0]} × {evidence.size[1]}" if evidence else "No associated screenshot. Record again with capture enabled, or capture a target manually."))
         self.convert_button.setEnabled(self.recorder.state=="stopped" and eligible and evidence is not None)
         self.convert_button.setToolTip("Crop and save a real image from this step's screenshot" if evidence else "No screenshot was captured for this step")
