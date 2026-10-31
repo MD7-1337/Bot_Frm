@@ -18,3 +18,6 @@ Windows packaging/CI and installer recipes are provided, but no Windows binary,
 installer, remote CI pass or physical-phone acceptance is claimed. This remains
 0.2.0 Alpha development with incomplete scope explicitly documented. Keep this
 PR in draft and unmerged; its base is `feat/phase6-recognition-simulator`.
+
+The Phase 6 branch advanced independently to `113dca1` during development; its
+Windows polling/path fixes were merged into this feature branch and revalidated.

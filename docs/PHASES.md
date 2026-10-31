@@ -10,6 +10,8 @@ recipes plus source smoke/performance evidence (Phase 10). These are substantial
 partial milestones; the full master requirements are not closed. See
 [ALPHA_COMPLETION.md](ALPHA_COMPLETION.md) for actual results, screenshots and
 remaining work. Windows, real phones and release redistribution remain open gates.
+The Phase 6 branch advanced independently to `113dca1` during this session; its
+Windows polling/path fixes were reviewed and merged locally before final validation.
 
 The earlier increment descriptions below are historical context; the milestone
 table continues to define the broader acceptance scope.

@@ -12,7 +12,10 @@ The new branch is `feat/alpha-completion`, based on the exact requested Phase 6
 commit `0a3e65cb8b84c23ded1cff7c6a202183357087b9`. Initial checkout `work` pointed
 to `099cc2a` and its fetch refspec tracked only main. Explicitly fetching Phase 6
 resolved that configuration issue. No implementation was based on the older
-checkout, and main/preceding development branches were not changed.
+checkout. Main and preceding development branches were not modified by this work.
+During execution, the remote Phase 6 branch independently advanced to `113dca1`
+(Windows polling/path fixes). That four-file change was reviewed and merged
+locally as `f3462da`; the final validation includes that latest observed base.
 
 ## Implemented and preserved
 
@@ -114,7 +117,7 @@ The final exact suite counts are recorded in
 be summed. The pristine baseline ran separately from implementation edits:
 **687 passed, 0 failed, 0 skipped in 48.81 seconds**.
 
-**Final regression: 863 passed, 0 failed, 0 skipped in 79.68 seconds.** This
+**Final regression: 863 passed, 0 failed, 0 skipped in 77.72 seconds.** This
 includes all 23 GUI-marked real Qt/WebEngine journeys and preserves the original
 687-test suite. The final run regenerated the screenshots above. Dedicated test
 module counts and all GUI case identifiers are retained in the JSON report.
@@ -174,9 +177,10 @@ merge, force-push or preceding-branch modification is authorized or performed.
 The environment configuration was not edited or published.
 
 The implementation commit is `be92614` (`feat: integrate isolated debugger, durable
-tasks and project preservation`). The subsequent delivery-report commit changes
-documentation only. The working tree is left committed; no source changes are
-pending.
+tasks and project preservation`). Commit `414309d` records the publication block;
+`f3462da` integrates the independently advanced Phase 6 base at `113dca1`. A final
+documentation/evidence commit records revalidation. The working tree is left
+committed; no source changes are pending.
 
 Automatic approval review rejected `git push -u origin feat/alpha-completion`,
 citing sensitive code publication and the earlier "do not publish" instruction.

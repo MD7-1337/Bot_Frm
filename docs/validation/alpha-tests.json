@@ -1,16 +1,15 @@
 {
-  "recorded_utc": "2026-10-31T10:07:23.038828+00:00",
+  "recorded_utc": "2026-10-31T10:10:44.328928+00:00",
   "platform": "Linux-6.18.57-x86_64-with-glibc2.41",
   "python": "3.12.14",
-  "base_commit": "0a3e65cb8b84c23ded1cff7c6a202183357087b9",
   "branch": "feat/alpha-completion",
   "command": "STUDIO_GUI_TESTS=1 QT_QPA_PLATFORM=offscreen QTWEBENGINE_DISABLE_SANDBOX=1 QTWEBENGINE_CHROMIUM_FLAGS=--disable-gpu STUDIO_CONFIG_DIR=/tmp/aas-final-config STUDIO_DATA_DIR=/tmp/aas-final-data .venv/bin/python -m pytest -q --junitxml=/tmp/aas-alpha-final-tests.xml",
   "passed": 863,
   "failed": 0,
   "errors": 0,
   "skipped": 0,
-  "pytest_reported_seconds": 79.68,
-  "junit_suite_seconds": 79.662,
+  "pytest_reported_seconds": 77.72,
+  "junit_suite_seconds": 77.706,
   "gui_passed": 23,
   "gui_nodeids": [
     "tests/test_alpha_completion_gui.py::test_managed_project_debug_scheduled_simulation_and_restart",
@@ -110,5 +109,9 @@
     "gui_passed": 12,
     "seconds": 48.81
   },
-  "limits": "Simulation/module counts overlap GUI and other categories. No Windows, physical-phone or frozen build evidence is claimed."
+  "limits": "Simulation/module counts overlap GUI and other categories. No Windows, physical-phone or frozen build evidence is claimed.",
+  "initial_base_commit": "0a3e65cb8b84c23ded1cff7c6a202183357087b9",
+  "integrated_base_commit": "113dca1b07adc5d4fc2f2b20d228a83996e130e4",
+  "implementation_commit": "be92614ec782f62a871235917c8df2329a3968c6",
+  "validated_merge_commit": "f3462da"
 }
