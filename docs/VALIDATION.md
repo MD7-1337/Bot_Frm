@@ -1,5 +1,7 @@
 # Phase 0 validation report
 
+**Latest results:** [PHASE6_VALIDATION.md](PHASE6_VALIDATION.md). This file retains the original Phase 0 validation record; later increments do not imply the historical unrun gates passed.
+
 Latest increment: [Alpha stabilization validation](ALPHA_STABILIZATION.md).
 The report below remains the historical Phase 0 record.
 

@@ -47,6 +47,7 @@ class Pattern:
     region: Region | None = None
     target_offset: Offset = Offset()
     scales: tuple[float, ...] = (1.0,)
+    preprocessing: str = "none"
 
     def __post_init__(self):
         if not isinstance(self.path, str) or not self.path or "\x00" in self.path or len(self.path) > 4096:
@@ -57,6 +58,8 @@ class Pattern:
         if not isinstance(self.target_offset, Offset):
             raise ValueError("Pattern target_offset must be an Offset")
         object.__setattr__(self, "scales", validate_scales(self.scales))
+        if self.preprocessing not in ("none", "grayscale", "threshold", "edges"):
+            raise ValueError("Pattern preprocessing must be none, grayscale, threshold or edges")
 
     def similar(self, score: float) -> Pattern:
         """Return this pattern with an inclusive normalized score threshold."""
@@ -73,6 +76,10 @@ class Pattern:
     def atScales(self, *scales: float) -> Pattern:
         """Search explicit template scales (1–16 values, each 0.1–4); offsets stay screen pixels."""
         return replace(self, scales=validate_scales(scales))
+
+    def preprocess(self, mode: str) -> Pattern:
+        """Explicit RGB/gray/threshold/edge matching; default none preserves original behavior."""
+        return replace(self, preprocessing=mode)
 
 
 @dataclass(frozen=True, slots=True)
@@ -158,3 +165,31 @@ class Screen:
     def to_numpy(self) -> np.ndarray:
         """Return a read-only RGB view; use .copy() for editable pixels."""
         return np.frombuffer(self.rgb, dtype=np.uint8).reshape(self.height, self.width, 3)
+
+
+@dataclass(frozen=True, slots=True)
+class TextMatch:
+    """OCR text and engine confidence (0–100), bound to one captured device."""
+    text: str
+    confidence: float
+    region: Region
+    device_serial: str
+    source_size: tuple[int, int]
+    frame_id: str
+    line: tuple[int, int, int, int] = (0,0,0,0)
+
+    def __post_init__(self):
+        if not isinstance(self.text, str) or not self.text or isinstance(self.confidence, bool) or not isinstance(self.confidence, (int,float)) or not 0 <= self.confidence <= 100 or not math.isfinite(self.confidence):
+            raise ValueError("TextMatch requires nonempty text and confidence in [0, 100]")
+        Match(self.region, self.confidence/100, self.device_serial, self.source_size, self.frame_id, "<ocr>")
+
+    @property
+    def target(self) -> Location:
+        return self.region.center
+
+
+@dataclass(frozen=True, slots=True)
+class OCRResult:
+    """Actual OCR output and device-bound word boxes; confidence is not certainty."""
+    text: str
+    words: tuple[TextMatch, ...]

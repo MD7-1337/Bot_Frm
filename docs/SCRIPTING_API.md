@@ -1,8 +1,8 @@
 # Foundational Python scripting API
 
-Latest alpha UI/diagnostic and recorder changes are reported in
-[ALPHA_STABILIZATION.md](ALPHA_STABILIZATION.md). RGB pixel/color commands below
-are part of the real serial-bound scripting API; OCR is still not implemented.
+Latest increment: [Phase 6 validation](PHASE6_VALIDATION.md), [recognition/OCR](RECOGNITION.md),
+[offline simulation](SIMULATION.md), [recorder](RECORDER.md) and [failure inspection](DEBUGGING.md).
+All 29 implemented commands are generated into Monaco completion/signature help.
 
 Implemented contract, 2026-10-30. This reference describes the executable API,
 not the broader proposed API in the original blueprint. All commands below are
@@ -41,11 +41,13 @@ The old `getDevice()` return contract remains the serial string.
 | `Location(x: int, y: int)` | Nonnegative Android pixel coordinates. Touch operations additionally validate against a fresh full-device capture. |
 | `Region(x: int, y: int, width: int, height: int)` | Nonnegative origin, positive extent; recognition rejects any part outside the current full screenshot. |
 | `Offset(x: int = 0, y: int = 0)` | Signed integer displacement from an image match center, limited to ±100000 px per axis. |
-| `Pattern(path: str, similarity: float = 0.85, region: Region \| None = None, target_offset: Offset = Offset(), scales: tuple[float, ...] = (1.0,))` | Immutable image reference. `.similar(score)`, `.inRegion(region)`, `.targetOffset(dx, dy)` and `.atScales(*scales)` return new values. Scales contain 1–16 finite values in [0.1, 4]; default is exactly one original-size search. |
+| `Pattern(path: str, similarity: float = 0.85, region: Region \| None = None, target_offset: Offset = Offset(), scales: tuple[float, ...] = (1.0,), preprocessing: str = "none")` | Immutable image reference. `.similar(score)`, `.inRegion(region)`, `.targetOffset(dx, dy)` `.atScales(*scales)` and `.preprocess(mode)` return new values. Modes: none/grayscale/threshold/edges; default none preserves prior RGB behavior. Scales contain 1–16 finite values in [0.1, 4]; default is exactly one original-size search. |
 | `Match` | Immutable region, score, `device_serial`, `source_size`, `frame_id`, template and target offset. `.target` computes center plus offset and rejects an out-of-screen result. A match from another serial is rejected before input. Changed source dimensions require a new search. |
 | `Screen` | Immutable full-resolution RGB bytes, serial, width/height, frame ID and host monotonic capture-arrival timestamp. `.resolution` is `(width, height)`; `.to_numpy()` returns a read-only RGB view. Use `.copy()` to edit pixels. |
 
-`Target = str | Pattern | Match | Location | tuple[int, int]`.
+`Target = str | Pattern | Match | TextMatch | Location | tuple[int, int]`.
+
+`TextMatch` is immutable text/confidence (0–100), Region, device serial, source size and frame ID. `.target` is the original-screen center. `OCRResult` contains text and an immutable tuple of word boxes. Both are available in the worker and through `app.automation.api`.
 Coordinates always refer to the original device screen, never scaled preview
 pixels. A match is evidence from a past capture, not a guarantee that the app
 will remain unchanged before input. Scores are normalized matching scores, not
@@ -58,6 +60,28 @@ remain original pixels. Cross-scale overlap suppression removes duplicates. No
 scale is implicit when excluded, and duplicate dimensions are searched once.
 Scales add native matching work; extremely small, spatially constant resizes are
 skipped. This is correlation, not OCR or general resolution independence.
+
+## Text recognition
+
+The five new commands `recognizeText`, `readText`, `findText`, `textExists` and
+`waitText` have the exact arguments, return values, limits, timeout and exception
+contracts in [RECOGNITION.md](RECOGNITION.md#optional-local-ocr). Every command is
+available both short and as `device.method(...)`. Missing Tesseract or language
+data raises `OCRUnavailable`; process/output errors raise `OCRFailed`; deadlines
+raise `RecognitionTimeout`. A real no-text result is empty, never a fabricated
+success. `click(TextMatch)` validates device ownership and original screen size.
+
+```python
+text = readText(region=Region(0, 0, 360, 180))
+if textExists("START"):
+    print("Visible text found")
+match = device.waitText("Continue", timeout=10)
+device.click(match)
+```
+
+These calls require explicitly available local OCR dependencies. In Demo Mode,
+they recognize actual generated pixels; the same optional engine handles native
+screenshots. Their results do not establish Android hardware validation.
 
 ## Actions
 

@@ -1,4 +1,4 @@
-# Test the stabilized alpha on your computer
+# Test the Phase 6 alpha on your computer
 
 Windows 10/11 x64 is the final target. The current cloud validation ran on Linux,
 not on Windows or your school computer. A working GUI does not grant USB access.
@@ -10,12 +10,13 @@ to identify its exact restriction before changing phone/app settings repeatedly.
 Use a fresh directory so your existing scripts and checkout remain intact:
 
 ```bash
-git clone --branch fix/alpha-device-connect-and-ux-overhaul https://github.com/MD7-1337/Bot_Frm.git Bot_Frm-alpha
+git clone --branch feat/phase6-recognition-simulator https://github.com/MD7-1337/Bot_Frm.git Bot_Frm-alpha
 cd Bot_Frm-alpha
 ```
 
-This branch starts from `feat/device-manager-visual-tools` (`a86c931`). Neither
-branch needs to be merged into main to test it.
+This branch starts from `fix/alpha-device-connect-and-ux-overhaul` (`7252f02`).
+The stacked draft PR targets that previous Alpha branch. No merge into main is
+needed to test it. All older reports are retained as historical evidence.
 
 ## Linux without sudo
 
@@ -70,6 +71,23 @@ Alternatively run `tools\run-studio.ps1` when your account's normal script polic
 allows it. Do not change execution policy just for this launcher; the direct
 Python command works without a PowerShell script. Missing OEM USB drivers may
 require your administrator. No Windows EXE/installer is delivered or validated.
+
+## Start without a phone
+
+Launch normally with `bash tools/run-studio.sh`, then **Start Demo Session** or
+`Ctrl+Shift+D`. **Device Manager → Simulation** offers three scenarios, delay,
+reset/stop and **Open scenario script**. Review/approve the example script and
+Run it; real image recognition changes the local simulated screen. Capture/crop
+and record/replay through the existing workspaces. See [SIMULATION.md](SIMULATION.md),
+[RECOGNITION.md](RECOGNITION.md) and [RECORDER.md](RECORDER.md).
+
+ADB and scrcpy downloads above are optional when exclusively using demos. No
+USB permission fix is needed to use them. Tesseract is optional and never
+auto-installed; without it image/color matching and every non-OCR demo still run.
+
+The terminal-only fixture remains `.venv/bin/python -m examples.run_visual_fixture`.
+A stateful terminal demo is `.venv/bin/python -m examples.run_simulation --scenario recorder`.
+Neither is Android hardware verification.
 
 ## Connect a USB phone
 

@@ -1,7 +1,7 @@
 # Android Automation Studio 0.2.0 — Ubuntu 22.04 x86_64
 
 For the latest unmerged alpha fixes, clone with
-`--branch fix/alpha-device-connect-and-ux-overhaul` instead of `--branch main` below.
+`--branch feat/phase6-recognition-simulator` (used below).
 If your school computer has no sudo access, start with
 [LOCAL_TESTING.md](docs/LOCAL_TESTING.md). It requires no privileged commands;
 host USB/driver/Qt library restrictions still need your administrator where applicable.
@@ -13,7 +13,7 @@ downloaded `editor_web/vendor` assets and `.tools` binaries are not tracked. The
 commands below restore those pinned dependencies without changing application
 functionality. Internet access is needed for initial setup; core use is offline.
 
-Current test results are in [ALPHA_STABILIZATION.md](docs/ALPHA_STABILIZATION.md).
+Current test results are in [PHASE6_VALIDATION.md](docs/PHASE6_VALIDATION.md).
 The cloud machine was not Ubuntu 22.04. These are Ubuntu installation instructions, not a
 claim of an Ubuntu or physical-phone acceptance test. The binary ADB dependency's
 glibc baseline was inspected and is compatible with Ubuntu 22.04's glibc baseline;
@@ -25,7 +25,7 @@ actual USB/device behavior still needs your testing.
 sudo apt-get update
 sudo apt-get install -y git
 mkdir -p "$HOME/Applications"
-git clone --branch main https://github.com/MD7-1337/Bot_Frm.git "$HOME/Applications/android-automation-studio-0.2.0"
+git clone --branch feat/phase6-recognition-simulator https://github.com/MD7-1337/Bot_Frm.git "$HOME/Applications/android-automation-studio-0.2.0"
 cd "$HOME/Applications/android-automation-studio-0.2.0"
 ```
 
@@ -90,7 +90,20 @@ pip instead of uv, install with `python -m pip install --require-hashes -r
 requirements.txt`, then `python -m pip install --no-deps -e .`. Still run the three
 asset download helpers. The uv workflow is recommended.
 
-## 4. Run the phone-free visual fixture
+## 4. Start the integrated offline demo
+
+```bash
+.venv/bin/python -m app.main
+```
+
+Click **Start Demo Session** or press `Ctrl+Shift+D`. Choose the image, wait or
+recorder scenario in **Device Manager → Simulation**. This uses the real Qt,
+Monaco, OpenCV and spawned-worker application with locally simulated screens.
+See [SIMULATION.md](docs/SIMULATION.md). No phone, ADB/scrcpy download or OCR
+installation is needed for demos once Python/Qt/Monaco are ready. OCR is an
+optional configured local executable; see [RECOGNITION.md](docs/RECOGNITION.md).
+
+## 5. Run the terminal-only phone-free visual fixture
 
 ```bash
 cd "$HOME/Applications/android-automation-studio-0.2.0"

@@ -8,7 +8,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QImageReader, QPixmap
 from PySide6.QtWidgets import (QDoubleSpinBox, QFormLayout, QGridLayout, QLabel,
-                              QHBoxLayout, QLineEdit, QListWidget, QPushButton, QSplitter, QVBoxLayout, QWidget)
+                              QComboBox, QHBoxLayout, QLineEdit, QListWidget, QPushButton, QSplitter, QVBoxLayout, QWidget)
 from app.ui.components import button, label, scroll, surface
 
 from app.projects.library import AssetLibrary, IMAGE_EXTENSIONS
@@ -64,6 +64,7 @@ class VisualToolsPanel(QWidget):
     asset_selected = Signal(str)
     insert_requested = Signal(str)
     test_requested = Signal()
+    inspect_requested = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -105,12 +106,15 @@ class VisualToolsPanel(QWidget):
         self.offset = QLineEdit("0, 0")
         self.region = QLineEdit()
         self.region.setPlaceholderText("optional x, y, width, height")
+        self.preprocess = QComboBox()
+        self.preprocess.addItems(["none", "grayscale", "threshold", "edges"])
         for text, widget in (("Minimum score", self.threshold), ("Template scales", self.scales),
                              ("Target offset", self.offset), ("Search bounds", self.region)):
             if isinstance(widget, QLineEdit):
                 widget.setMaxLength(256)
             options.addRow(text, widget)
         form_layout.addLayout(options)
+        options.addRow("Preprocessing", self.preprocess)
         insert = QGridLayout()
         self.insert_buttons = []
         for index, (text, command) in enumerate((("Insert click", "click"), ("Insert find", "find"),
@@ -121,6 +125,7 @@ class VisualToolsPanel(QWidget):
         form_layout.addLayout(insert)
         self.test_button = button("Test on fresh phone screen", self.test_requested.emit, primary=True)
         form_layout.addWidget(self.test_button)
+        form_layout.addWidget(button("Inspect text / color / pixels…", self.inspect_requested.emit))
         form_layout.addWidget(label("Matching never sends input. Review scores, ambiguity and original Android coordinates before inserting a click."))
         form_layout.addStretch()
         split.addWidget(scroll(properties))
@@ -173,6 +178,8 @@ class VisualToolsPanel(QWidget):
             return reference + "\n"
         threshold, scales, offset, region = self.options()
         pattern = f"Pattern({reference}).similar({threshold})"
+        if self.preprocess.currentText() != "none":
+            pattern += f".preprocess({self.preprocess.currentText()!r})"
         if scales != (1.0,):
             pattern += f".atScales({', '.join(map(str, scales))})"
         if offset != (0, 0):

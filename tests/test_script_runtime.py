@@ -246,3 +246,15 @@ def test_fast_blocking_api_loop_line_reporting_is_coalesced(image_project):
         lines = [event for event in events if event["event"] == "line"]
         assert len(lines) <= 8
         assert all(second["timestamp"] - first["timestamp"] >= .045 for first, second in zip(lines, lines[1:]))
+
+
+def test_virtual_dependency_filenames_are_not_project_execution_lines(tmp_path):
+    import threading
+    from app.automation.runtime import _ExecutionControl
+    root=tmp_path/'project';scripts=root/'scripts';scripts.mkdir(parents=True)
+    control=_ExecutionControl(threading.Event(),threading.Event(),lambda *a,**k:None,
+                              str(scripts/'main.py'),str(scripts),str(root))
+    assert control._user_file(str(scripts/'main.py'))
+    assert control._user_file(str(scripts/'helper.py'))
+    assert not control._user_file('shibokensupport/signature/loader.py')
+    assert not control._user_file('<string>')

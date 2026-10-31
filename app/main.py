@@ -20,7 +20,7 @@ def diagnostics() -> dict:
     server = Path(os.environ.get("STUDIO_SCRCPY_SERVER") or settings.value("scrcpy_server_path", "") or Path(__file__).resolve().parents[1] / ".tools/scrcpy-server-v3.1").expanduser()
     server_verified = server.is_file() and server.stat().st_size <= 2_000_000 and hashlib.sha256(server.read_bytes()).hexdigest() == SERVER_SHA256
     from app.automation.api import API_METHOD_NAMES
-    return {"phase": "alpha-stabilization", "platform": platform.platform(), "python": platform.python_version(),
+    return {"phase": "phase6-recognition-simulation", "platform": platform.platform(), "python": platform.python_version(),
             "dependencies": {name: importlib.metadata.version(name) for name in
                              ("PySide6", "numpy", "opencv-python-headless", "av")},
             "adb": shutil.which(adb_executable(settings.value("adb_path", ""))),
@@ -30,7 +30,10 @@ def diagnostics() -> dict:
             "embedded_scrcpy": "implemented; hardware acceptance unverified",
             "automation_commands": list(API_METHOD_NAMES), "script_pause_resume": True,
             "workspaces": ["Script Studio", "Device Manager", "Visual Tools", "Recorder", "Activity & Logs", "Task Manager (planned scheduling)", "Settings"],
-            "recorder": "acknowledged studio controls; save/open JSON sessions; trusted replay",
+            "recorder": "studio controls; pre-tap evidence; explicit saved image conversion; JSON v1/v2; trusted replay",
+            "simulation": "explicit opt-in; 3 stateful scenarios; separate transport; no Android hardware verification",
+            "ocr": {"engine": "optional local Tesseract TSV; no downloads", "executable": shutil.which(settings.value("ocr_executable", "") or os.environ.get("STUDIO_TESSERACT") or "tesseract")},
+            "failure_inspection": "typed advice and source navigation; no automatic retry; breakpoint debugger deferred",
             "connection_diagnostics": "staged ADB/query/screenshot/video checks; physical device required for final stages",
             "template_scales": "explicit 1–16 values in [0.1, 4]; default 1.0",
             "windows_release": "not built"}

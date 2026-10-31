@@ -179,9 +179,24 @@ def validate_scales(scales) -> tuple[float, ...]:
     return tuple(dict.fromkeys(float(value) for value in scales))
 
 
+def preprocess_rgb(image: RGBImage, mode: str = "none") -> RGBImage:
+    """Owned preprocessing for an explicit request; ordinary RGB remains unchanged."""
+    _image("image", image)
+    if mode not in ("none", "grayscale", "threshold", "edges"):
+        raise ValueError("Preprocessing must be none, grayscale, threshold or edges")
+    if mode == "none":
+        return image
+    gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+    if mode == "threshold":
+        _, gray = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    elif mode == "edges":
+        gray = cv2.Canny(gray, 80, 160)
+    return cv2.cvtColor(gray, cv2.COLOR_GRAY2RGB)
+
+
 def find_scaled(frame: RGBImage, template: RGBImage, threshold: float = .9,
                 region: Region | None = None, *, scales=(1.0,), max_results=100,
-                nms_iou=.3) -> list[Match]:
+                nms_iou=.3, preprocess="none") -> list[Match]:
     """Explicit multi-scale correlation with full-frame coordinates and cross-scale NMS.
 
     Offsets remain original-screen pixels. This does not normalize DPI, lighting,
@@ -189,10 +204,11 @@ def find_scaled(frame: RGBImage, template: RGBImage, threshold: float = .9,
     max_results candidates per scale enter deterministic global suppression.
     """
     scales = validate_scales(scales)
+    frame = preprocess_rgb(frame, preprocess)
     # Preserve the exact existing default path; other requests search only
     # their specified dimensions rather than computing implicit scale-one results.
     if scales == (1.0,):
-        return find_all(frame, template, threshold, region, max_results=max_results, nms_iou=nms_iou)
+        return find_all(frame, preprocess_rgb(template, preprocess), threshold, region, max_results=max_results, nms_iou=nms_iou)
     threshold, region, nms_iou = _settings(frame, template, threshold, region, max_results, nms_iou)
     candidates = []
     height, width = template.shape[:2]
@@ -208,6 +224,7 @@ def find_scaled(frame: RGBImage, template: RGBImage, threshold: float = .9,
             raise ValueError("Scaled template exceeds 16 megapixels")
         resized = template if size == (width, height) else cv2.resize(
             template, size, interpolation=cv2.INTER_AREA if scale < 1 else cv2.INTER_LINEAR)
+        resized = preprocess_rgb(resized, preprocess)
         # Downsampling can legitimately eliminate all spatial information.
         if float(np.var(resized.astype(np.float32), axis=(0, 1)).sum()) <= 1e-8:
             continue

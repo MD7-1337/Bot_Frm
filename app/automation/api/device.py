@@ -11,7 +11,7 @@ import cv2
 import numpy as np
 
 from app.automation.api import errors
-from app.automation.api.models import Location, Match, Offset, Pattern, Region, Screen
+from app.automation.api.models import Location, Match, Offset, Pattern, Region, Screen, TextMatch, OCRResult
 from app.vision.matching import find_scaled
 from app.vision.color import pixel, find_color
 
@@ -20,8 +20,9 @@ API_METHOD_NAMES = (
     "find", "findAll", "exists", "waitImage", "waitVanish", "sleep", "wait",
     "back", "home", "launchApp", "stopApp", "typeText", "capture",
     "getResolution", "getDevice", "getPixel", "findColor",
+    "recognizeText", "readText", "findText", "textExists", "waitText",
 )
-Target = Location | Match | Pattern | str | tuple[int, int]
+Target = Location | Match | TextMatch | Pattern | str | tuple[int, int]
 
 
 class Backend(Protocol):
@@ -64,7 +65,7 @@ class Device:
     def __init__(self, backend: Backend, assets: ImageLibrary, *,
                  checkpoint: Callable[[], None] | None = None,
                  interruptible_wait: Callable[[float], None] | None = None,
-                 emit: Callable[..., None] | None = None):
+                 emit: Callable[..., None] | None = None, ocr=None):
         if not isinstance(backend.serial, str) or not backend.serial:
             raise ValueError("Device backend requires its explicit serial")
         self._backend = backend
@@ -73,6 +74,7 @@ class Device:
         self._checkpoint = checkpoint or (lambda: None)
         self._interruptible_wait = interruptible_wait
         self._emit = emit or (lambda *args, **kwargs: None)
+        self._ocr = ocr
 
     @property
     def serial(self) -> str:
@@ -87,7 +89,7 @@ class Device:
         """Bindings for one execution namespace; imported functions use contextvars."""
         bindings = {name: getattr(self, name) for name in API_METHOD_NAMES}
         bindings.update(device=self, Pattern=Pattern, Offset=Offset, Location=Location,
-                        Region=Region, Match=Match, Screen=Screen)
+                        Region=Region, Match=Match, Screen=Screen, TextMatch=TextMatch, OCRResult=OCRResult)
         for name in dir(errors):
             value = getattr(errors, name)
             if isinstance(value, type) and issubclass(value, errors.AutomationError):
@@ -156,7 +158,7 @@ class Device:
     def _resolved_target(self, target: Target) -> tuple[Location, tuple[int, int]]:
         if isinstance(target, (str, Pattern)):
             target = self.find(target)
-        if isinstance(target, Match):
+        if isinstance(target, (Match, TextMatch)):
             if target.device_serial != self.serial:
                 raise errors.CrossDeviceTarget("Match belongs to another device")
             size = self.getResolution()
@@ -279,7 +281,7 @@ class Device:
         self._check()
         try:
             found = find_scaled(screen.to_numpy(), template, pattern.similarity, search,
-                                scales=pattern.scales, max_results=limit)
+                                scales=pattern.scales, max_results=limit, preprocess=pattern.preprocessing)
         except ValueError as error:
             raise errors.InvalidAsset(str(error)) from error
         self._check()
@@ -289,6 +291,91 @@ class Device:
                    matches=[{"x": item.region.x, "y": item.region.y, "width": item.region.width,
                              "height": item.region.height, "score": item.score} for item in output[:100]])
         return output
+
+    def recognizeText(self, *, region: Region | None = None, language: str = "eng", confidence: float = 0,
+                      timeout: float = 10, psm: int = 6, preprocess: str = "grayscale") -> OCRResult:
+        """Fresh OCR with word boxes and confidence 0–100; local Tesseract/data required.
+
+        Original coordinates; max 4MP search area. Native OCR is bounded to
+        0<timeout<=60 seconds and checks pause/cancellation while the owned
+        process runs. No files/models are downloaded. Missing engine/model
+        raises OCRUnavailable, process/output failures OCRFailed.
+        """
+        from app.vision.ocr import TesseractOCR, OcrUnavailable, OcrFailure
+        screen = self.capture()
+        self._region(region, screen)
+        if self._ocr is None:
+            self._ocr = TesseractOCR()
+        try:
+            result = self._ocr.recognize(screen.to_numpy(), region=region, language=language, confidence=confidence,
+                                         timeout=timeout, psm=psm, preprocess=preprocess, checkpoint=self._check)
+        except OcrUnavailable as error:
+            raise errors.OCRUnavailable(str(error)) from error
+        except OcrFailure as error:
+            raise errors.OCRFailed(str(error)) from error
+        except TimeoutError as error:
+            raise errors.RecognitionTimeout(str(error)) from error
+        self._check()
+        words = tuple(TextMatch(w.text,w.confidence,w.region,self.serial,screen.resolution,screen.frame_id,w.line) for w in result.words)
+        self._emit("recognition", method="ocr", count=len(words), frame_id=screen.frame_id)
+        return OCRResult(result.text, words)
+
+    def readText(self, *, region: Region | None = None, language: str = "eng", confidence: float = 0,
+                 timeout: float = 10, psm: int = 6, preprocess: str = "grayscale") -> str:
+        """Return recognized text, or empty string for real text absence; failures propagate."""
+        return self.recognizeText(region=region,language=language,confidence=confidence,timeout=timeout,psm=psm,preprocess=preprocess).text
+
+    def findText(self, text: str, *, region: Region | None = None, exact: bool = True, case_sensitive: bool = False,
+                 confidence: float = 50, language: str = "eng", timeout: float = 10) -> list[TextMatch]:
+        """Fresh OCR phrase search; exact whole words or tolerant substring, same line.
+
+        Returns device-bound boxes, row/read order; no match gives []. Matching
+        normalizes whitespace and optionally case. Substring boxes cover whole
+        recognized words, not guessed character positions. Errors propagate.
+        """
+        from app.vision.ocr import TextResult, TextBox, search_text
+        if not isinstance(text,str) or not text.strip() or len(text)>500 or type(exact) is not bool or type(case_sensitive) is not bool:
+            raise ValueError("Use a nonempty text query and boolean exact/case_sensitive options")
+        result = self.recognizeText(region=region, language=language, confidence=confidence, timeout=timeout)
+        words = tuple(TextBox(w.text,w.confidence,w.region,w.line) for w in result.words)
+        found = search_text(TextResult(result.text,words),text,exact=exact,case_sensitive=case_sensitive)
+        if not result.words:
+            return []
+        sample=result.words[0]
+        return [TextMatch(w.text,w.confidence,w.region,self.serial,sample.source_size,sample.frame_id,w.line) for w in found]
+
+    def textExists(self, text: str, *, region: Region | None = None, exact: bool = True, case_sensitive: bool = False,
+                   confidence: float = 50, language: str = "eng", timeout: float = 10) -> bool:
+        """True if at least one OCR phrase matches; missing engines and errors are not False."""
+        return bool(self.findText(text,region=region,exact=exact,case_sensitive=case_sensitive,confidence=confidence,language=language,timeout=timeout))
+
+    def waitText(self, text: str, timeout: float = 10, *, region: Region | None = None, exact: bool = True,
+                 case_sensitive: bool = False, confidence: float = 50, language: str = "eng", poll_interval: float = .2) -> TextMatch:
+        """Wait for one unique OCR phrase; wall-clock timeout includes captures/OCR/pauses.
+
+        timeout=0 makes one bounded attempt. Multiple matches raise AmbiguousMatch;
+        missing engine/models and device failures propagate without blind retries.
+        """
+        timeout=seconds(timeout,"timeout")
+        interval=seconds(poll_interval,"poll_interval",positive=True,maximum=60)
+        deadline=time.monotonic()+timeout
+        while True:
+            self._check()
+            remaining=deadline-time.monotonic()
+            if timeout>0 and remaining<=0:
+                raise errors.RecognitionTimeout(f"Text did not appear within {timeout:g}s: {text}")
+            matches=self.findText(text,region=region,exact=exact,case_sensitive=case_sensitive,confidence=confidence,
+                                  language=language,timeout=min(10,remaining) if timeout>0 else 10)
+            if timeout>0 and time.monotonic()>deadline:
+                raise errors.RecognitionTimeout(f"Text recognition exceeded {timeout:g}s")
+            if len(matches)>1:
+                raise errors.AmbiguousMatch(f"Multiple text targets matched: {text}")
+            if matches:
+                return matches[0]
+            remaining=deadline-time.monotonic()
+            if remaining<=0:
+                raise errors.RecognitionTimeout(f"Text did not appear within {timeout:g}s: {text}")
+            self.sleep(min(interval,remaining))
 
     def find(self, image: str | Pattern, *, region: Region | None = None) -> Match:
         """One capture/search; raise ImageNotFound or AmbiguousMatch instead of guessing."""

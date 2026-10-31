@@ -74,7 +74,7 @@ def test_parent_reference_is_script_relative_without_fallback_reinterpretation(p
 
 
 def test_absolute_inside_path_and_quoted_unicode_filename(project):
-    expected = asset(project / 'images/quote" téléphone 📱.png')
+    expected = asset(project / "images/quote' téléphone 📱.png")
     library = AssetLibrary(project, project / "scripts")
     assert library.resolve(expected) == expected
     assert library.resolve(expected.name) == expected

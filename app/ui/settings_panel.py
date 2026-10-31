@@ -19,6 +19,7 @@ def number(low, high, value):
 
 class SettingsPanel(QWidget):
     apply_requested = Signal(object)
+    check_ocr_requested = Signal()
 
     def __init__(self, settings, parent=None):
         super().__init__(parent)
@@ -80,6 +81,23 @@ class SettingsPanel(QWidget):
         layout.addWidget(label("One worker owns one phone. Normal Python has your user permissions; trust approval and emergency stop remain mandatory parts of execution. Changing the worker limit does not interrupt current runs.", "notice"))
         layout.addStretch()
         tabs.addTab(automation, "Automation")
+        recognition = QWidget()
+        recognition_layout = QVBoxLayout(recognition)
+        recognition_layout.addWidget(label("Offline OCR (optional)", "sectionTitle"))
+        recognition_layout.addWidget(label("Tesseract 5 and local traineddata provide text recognition. Nothing is downloaded or installed automatically. Choose an existing trusted executable; models can be supplied under TESSDATA_PREFIX."))
+        self.ocr_path = QLineEdit(settings.value("ocr_executable", ""))
+        self.ocr_path.setPlaceholderText("Automatic: STUDIO_TESSERACT or tesseract on PATH")
+        recognition_layout.addWidget(self.ocr_path)
+        def choose_ocr():
+            path,_ = QFileDialog.getOpenFileName(self,"Choose Tesseract executable",self.ocr_path.text(),"Tesseract (tesseract tesseract.exe);;All files (*)")
+            if path:
+                self.ocr_path.setText(path)
+        recognition_layout.addWidget(button("Choose OCR executable…",choose_ocr))
+        recognition_layout.addWidget(button("Check OCR engine and languages",self.check_ocr_requested.emit))
+        self.ocr_status = label("OCR has not been checked on this computer.", "notice")
+        recognition_layout.addWidget(self.ocr_status)
+        recognition_layout.addStretch()
+        tabs.addTab(recognition,"Recognition")
         privacy = QWidget()
         layout = QVBoxLayout(privacy)
         layout.addWidget(label("Local by default", "sectionTitle"))
@@ -105,4 +123,5 @@ class SettingsPanel(QWidget):
         self.apply_requested.emit({"theme": self.theme.currentText(), "editor_font_size": self.font_size.value(),
             "adb_path": self.adb_path.text().strip(), "scrcpy_server_path": self.server_path.text().strip(),
             "stream_fps": self.fps.value(), "stream_bitrate": self.bitrate.value(), "stream_size": self.max_size.value(),
-            "worker_limit": self.workers.value(), "discovery_seconds": self.discovery.value(), "redact_diagnostics": self.redact.isChecked()})
+            "worker_limit": self.workers.value(), "discovery_seconds": self.discovery.value(), "redact_diagnostics": self.redact.isChecked(),
+            "ocr_executable": self.ocr_path.text().strip()})

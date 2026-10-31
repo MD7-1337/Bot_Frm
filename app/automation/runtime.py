@@ -30,11 +30,12 @@ from types import ModuleType
 from uuid import uuid4
 
 from app.automation.api.errors import Cancelled as ScriptCancelled
+from app.automation.recovery import classify_failure
 
 MAX_MESSAGE_BYTES = 64 * 1024
 MAX_SOURCE_BYTES = 1024 * 1024
 TERMINAL_STATES = frozenset({"completed", "failed", "cancelled"})
-Backend = Literal["mock", "adb"]
+Backend = Literal["mock", "adb", "simulation"]
 
 
 class TrustRequiredError(PermissionError):
@@ -185,7 +186,10 @@ class _ExecutionControl:
         if cached is not None:
             return cached
         result = False
-        if not filename.startswith("<"):
+        # Embedded PySide helpers can use virtual relative filenames such as
+        # shibokensupport/signature/loader.py. Resolving those against the
+        # worker cwd falsely marks dependency lines as project source.
+        if not filename.startswith("<") and Path(filename).is_absolute():
             path = Path(filename).resolve()
             result = (not any(path.is_relative_to(excluded) for excluded in self._excluded_roots)
                       and (path.is_relative_to(self.script_directory)
@@ -257,7 +261,7 @@ def _main_namespace(script_id: str, bindings: dict[str, Any]):
 def _worker(
     source: str, serial: str, backend: Backend, adb_executable: str,
     script_id: str, run_id: str, writer: Connection, cancelled: Any, activation: Any,
-    paused: Any, project_root: str, script_directory: str, mock_config: dict | None,
+    paused: Any, project_root: str, script_directory: str, mock_config: dict | None, simulation_config: dict | None, ocr_config: dict | None,
 ) -> None:
     emission_lock = threading.Lock()
     missing_cache = object()
@@ -286,6 +290,7 @@ def _worker(
             raise ScriptCancelled("Cancelled before worker activation")
         from app.automation.api import Device, use_device
         from app.automation.backends import AdbBackend, MockBackend
+        from app.vision.ocr import TesseractOCR
         from app.projects.library import AssetLibrary
 
         # Paths/cwd belong to this process only. Ordinary Python imports remain
@@ -295,10 +300,15 @@ def _worker(
                 sys.path.insert(0, directory)
         os.chdir(script_directory)
         execution = _ExecutionControl(cancelled, paused, emit, script_id, script_directory, project_root)
-        adapter = AdbBackend(serial, adb_executable) if backend == "adb" else MockBackend(serial, mock_config)
+        if backend == "simulation":
+            from app.simulation.model import SimulationClient
+            adapter = SimulationClient(serial, simulation_config)
+        else:
+            adapter = AdbBackend(serial, adb_executable) if backend == "adb" else MockBackend(serial, mock_config)
         context = Device(adapter, AssetLibrary(project_root, script_dir=script_directory),
                          checkpoint=execution.checkpoint,
-                         interruptible_wait=execution.interruptible_wait, emit=emit)
+                         interruptible_wait=execution.interruptible_wait, emit=emit,
+                         ocr=TesseractOCR(**(ocr_config or {})))
         emit("status", state="running")
         with contextlib.redirect_stdout(_EventWriter(emit, "stdout")), contextlib.redirect_stderr(_EventWriter(emit, "stderr")), use_device(context), _main_namespace(script_id, context.bindings()) as namespace:
             execution.checkpoint()
@@ -317,7 +327,7 @@ def _worker(
         sys.settrace(None)
         frames = traceback.extract_tb(error.__traceback__)
         user_frames = [frame for frame in frames if frame.filename == script_id or
-                       (not frame.filename.startswith("<") and
+                       (not frame.filename.startswith("<") and Path(frame.filename).is_absolute() and
                         Path(frame.filename).resolve().is_relative_to(Path(project_root)) and
                         not Path(frame.filename).resolve().is_relative_to(Path(__file__).resolve().parents[1]))]
         location = user_frames[-1] if user_frames else None
@@ -326,6 +336,7 @@ def _worker(
         except BaseException:
             message = "Exception message could not be formatted"
         emit("error", error_type=type(error).__name__[:200], message=message[:2000],
+             failure=classify_failure(error),
              source_path=(location.filename if location else script_id)[:1024],
              source_line=location.lineno if location else None,
              traceback="".join(traceback.format_exception(type(error), error, error.__traceback__))[-6000:])
@@ -372,7 +383,7 @@ class RuntimeCoordinator:
         self, source: str, serial: str, *, trusted: bool = False,
         backend: Backend = "mock", adb_executable: str = "adb", script_id: str = "<script>",
         control: RunControl | None = None,
-        project_root: str | Path | None = None, mock_config: dict | None = None,
+        project_root: str | Path | None = None, mock_config: dict | None = None, simulation_config: dict | None = None, ocr_config: dict | None = None,
     ) -> str:
         """Run trusted Python on one serial and return a unique run ID.
 
@@ -389,8 +400,14 @@ class RuntimeCoordinator:
             raise ValueError("Source must be a string of at most 1 MiB")
         if not isinstance(serial, str) or not serial or len(serial) > 256 or any(c.isspace() for c in serial) or serial.startswith("-"):
             raise ValueError("A nonempty explicit device serial is required")
-        if backend not in ("mock", "adb"):
-            raise ValueError("backend must be 'mock' or 'adb'")
+        if backend not in ("mock", "adb", "simulation"):
+            raise ValueError("backend must be 'mock', 'adb' or 'simulation'")
+        from app.simulation.model import is_simulation, SimulationClient
+        if backend == "simulation":
+            SimulationClient(serial, simulation_config)
+            simulation_config = dict(simulation_config)
+        elif is_simulation(serial) or simulation_config is not None:
+            raise ValueError("Simulation identities/capabilities require the simulation backend")
         if not isinstance(script_id, str) or len(script_id) > 1024:
             raise ValueError("script_id must be a string of at most 1024 characters")
         from app.projects.library import AssetLibrary, discover_project
@@ -409,6 +426,10 @@ class RuntimeCoordinator:
             if len(encoded_config.encode("utf-8")) > 128 * 1024:
                 raise ValueError("mock_config exceeds the supported size")
             mock_config = json.loads(encoded_config)
+        if ocr_config is not None:
+            if not isinstance(ocr_config, dict) or set(ocr_config) != {"executable"} or not isinstance(ocr_config["executable"], str) or len(ocr_config["executable"])>4096 or "\x00" in ocr_config["executable"]:
+                raise ValueError("OCR configuration accepts only an explicit executable path")
+            ocr_config = dict(ocr_config)
         compile(source, script_id, "exec")
         active = [run for run in self._runs.values() if run.process is not None and run.process.is_alive()]
         if any(run.info.serial == serial for run in active):
@@ -429,7 +450,7 @@ class RuntimeCoordinator:
         process = self._context.Process(
             target=_worker,
             args=(source, serial, backend, adb_executable, script_id, run_id, writer, cancelled, control.activation,
-                  control.paused, str(root), str(script_directory), mock_config),
+                  control.paused, str(root), str(script_directory), mock_config, simulation_config, ocr_config),
             name=f"automation-{run_id[:8]}",
         )
         try:
@@ -458,9 +479,11 @@ class RuntimeCoordinator:
             received = False
             for run in self._runs.values():
                 reader = run.reader
-                if reader is None or not reader.poll(0):
+                if reader is None:
                     continue
                 try:
+                    if not reader.poll(0):
+                        continue
                     data = reader.recv_bytes(MAX_MESSAGE_BYTES)
                     event = json.loads(data)
                     if not isinstance(event, dict) or event.get("run_id") != run.info.run_id or event.get("serial") != run.info.serial:

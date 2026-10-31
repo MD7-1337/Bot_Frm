@@ -29,7 +29,7 @@ def test_catalog_is_the_public_implementation_contract():
     assert "timeout" in methods["waitImage"]["signature"]
     assert "duration" in methods["longPress"]["signature"]
     assert {item["name"] for item in catalog if item["kind"] == "type"} >= {"Pattern", "Region", "Location", "Match"}
-    assert {item["name"] for item in catalog if item["member_of"] == "Pattern"} == {"similar", "targetOffset", "inRegion", "atScales"}
+    assert {item["name"] for item in catalog if item["member_of"] == "Pattern"} == {"similar", "targetOffset", "inRegion", "atScales", "preprocess"}
     assert methods["click"]["documentation"] == inspect.getdoc(Device.click)
 
 

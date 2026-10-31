@@ -111,3 +111,75 @@ def test_generated_recording_replays_in_two_independent_spawned_workers(tmp_path
         for serial in ("replay-one", "replay-two"):
             commands = [item for item in events if item.get("serial") == serial and item.get("command") in ("tap", "swipe", "key")]
             assert [item["command"] for item in commands] == ["tap", "tap", "tap", "swipe", "key", "key"]
+
+
+def screenshot_evidence(serial='phone'):
+    import cv2
+    import numpy as np
+    from app.automation.recording import ScreenshotEvidence
+    pixels = np.random.default_rng(5).integers(0,255,(60,90,3),np.uint8)
+    return ScreenshotEvidence(serial,cv2.imencode('.png',pixels)[1].tobytes(),(90,60))
+
+
+def test_schema_two_preserves_preaction_evidence_geometry_and_duration():
+    import json
+    recorder=ActionRecorder()
+    recorder.start('phone',1)
+    evidence=screenshot_evidence()
+    recorder.complete(recorder.ticket('phone',1,'tap(40, 30)',.2),10,evidence=evidence)
+    recorder.stop()
+    payload=recorder.session_json()
+    restored=ActionRecorder(); restored.load_session(payload)
+    assert restored.actions==['tap(40, 30)']
+    assert restored.evidence=={0:evidence}
+    assert restored.durations=={0:.2}
+    assert restored.screen_size==(90,60)
+    assert json.loads(payload)['schema_version']==2
+    assert ast.parse(restored.source())
+
+
+def test_failed_or_stale_actions_never_keep_screenshot_evidence():
+    recorder=ActionRecorder(); recorder.start('phone',1)
+    ticket=recorder.ticket('phone',1,'tap(40, 30)')
+    recorder.pause(); recorder.resume('phone',1)
+    recorder.complete(ticket,10,evidence=screenshot_evidence())
+    assert recorder.evidence=={}
+    recorder.complete(recorder.ticket('phone',1,'tap(40, 30)'),11,'failed',evidence=screenshot_evidence())
+    assert recorder.actions==[] and recorder.evidence=={}
+
+
+def test_other_device_evidence_does_not_attach():
+    recorder=ActionRecorder(); recorder.start('phone',1)
+    recorder.complete(recorder.ticket('phone',1,'tap(1, 2)'),10,evidence=screenshot_evidence('other'))
+    assert recorder.actions==['tap(1, 2)'] and not recorder.evidence
+
+
+@pytest.mark.parametrize('change',[
+    lambda d:d.update(evidence={'1':d['evidence']['0']}),
+    lambda d:d['evidence']['0'].update(size=[2,3]),
+    lambda d:d['evidence']['0'].update(png='invalid!'),
+    lambda d:d.update(durations={'0':-1}),
+    lambda d:d.update(durations={'0':10**400}),
+    lambda d:d.update(screen_size=[True,4]),
+])
+def test_bad_session_is_transactional(change):
+    import json
+    recorder=ActionRecorder(); recorder.start('phone',1)
+    recorder.complete(recorder.ticket('phone',1,'tap(1, 2)'),10,evidence=screenshot_evidence())
+    recorder.stop()
+    original=recorder.session_json(); data=json.loads(original); change(data)
+    with pytest.raises(ValueError): recorder.load_session(json.dumps(data))
+    assert recorder.session_json()==original
+
+
+def test_conversion_keeps_original_target_offset_and_valid_python():
+    from app.automation.recording import image_target_code
+    from app.vision.matching import Region
+    code=image_target_code('tap(40, 30)',Region(20,10,40,40),'images/start.png')
+    assert code=='click("images/start.png")'
+    code=image_target_code('tap(43, 27)',Region(20,10,40,40),'images/a"b.png')
+    assert '.targetOffset(3, -3)' in code
+    ast.parse(code)
+    for invalid in ('home()', 'tap(x, y)', 'tap(True, 2)', 'tap(2, 3); back()', 'tap(2, 3, extra=1)'):
+        with pytest.raises(ValueError): image_target_code(invalid,Region(0,0,80,50),'target.png')
+    with pytest.raises(ValueError,match='contain'): image_target_code('tap(90, 30)',Region(0,0,80,50),'target.png')

@@ -9,6 +9,7 @@ from app.ui.components import button, label, surface
 from app.ui.design import icon
 from app.ui.script_studio import ProjectExplorer, ScriptTabs
 from app.ui.settings_panel import SettingsPanel
+from app.simulation.model import LABEL as SIMULATION_LABEL, is_simulation
 
 WORKSPACES = {
     "studio": ("Script Studio", "Write Python. Build visual actions. Run on the phone you choose."),
@@ -93,6 +94,9 @@ class WorkspaceShell(QWidget):
         self.emergency.setToolTip("Stop all script workers and block new studio inputs (Ctrl+Shift+F12)")
         header.addWidget(self.emergency)
         main.addLayout(header)
+        self.simulation_notice = label(SIMULATION_LABEL, "notice")
+        self.simulation_notice.hide()
+        main.addWidget(self.simulation_notice)
         self.notification = label("", "notice")
         self.notification.hide()
         self.notification.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
@@ -113,7 +117,8 @@ class WorkspaceShell(QWidget):
         welcome.setContentsMargins(0, 0, 0, 0)
         welcome.addWidget(label("Start with a phone or a Python script. Your work stays local.", "notice"), stretch=1)
         welcome.addWidget(button("Connect a device", lambda: window.show_workspace("devices")))
-        welcome.addWidget(button("New script", window.new_script, primary=True))
+        welcome.addWidget(button("Start Demo Session", window.start_demo, primary=True))
+        welcome.addWidget(button("New script", window.new_script))
         studio_layout.addWidget(self.welcome)
         split = QSplitter()
         split.addWidget(self.project)
@@ -180,7 +185,7 @@ class WorkspaceShell(QWidget):
     @staticmethod
     def slot():
         widget = QWidget()
-        widget.setMinimumWidth(100)
+        widget.setMinimumWidth(280)
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(0, 0, 0, 0)
         return widget
@@ -192,6 +197,8 @@ class WorkspaceShell(QWidget):
     def switch(self, key):
         if key not in self.pages:
             return
+        if key != self.current and key in ("devices", "visual", "recorder"):
+            self.preview_on_small = False
         self.current = key
         self.stack.setCurrentWidget(self.pages[key])
         self.title.setText(WORKSPACES[key][0])
@@ -226,8 +233,13 @@ class WorkspaceShell(QWidget):
         compact = self.width() < 1250
         for slot in self.preview_slots.values():
             slot.setVisible(not compact or self.preview_on_small)
+        # Dense tool forms and a phone cannot both fit a compact pane. The
+        # header toggle shows either the tools or the preview at full width.
+        for key in ("devices", "visual", "recorder"):
+            self.window.docks[key].setVisible(not compact or not self.preview_on_small)
         self.project.setVisible(self.width() >= 1100)
         self.preview_toggle.setVisible(compact and self.current in self.preview_slots)
+        self.preview_toggle.setText("Back to tools" if compact and self.preview_on_small and self.current in ("devices", "visual", "recorder") else "Preview")
 
     def toggle_preview(self):
         self.preview_on_small = not self.preview_on_small
@@ -245,7 +257,8 @@ class WorkspaceShell(QWidget):
     def sync_devices(self):
         observed = self.window.registry.snapshot()
         selected = self.window._selected_identity()
-        signature = (selected, tuple((d.serial, d.state, d.model) for d in observed))
+        simulated = self.window.simulations.snapshot()
+        signature = (selected, tuple((d.serial, d.state, d.model) for d in observed), tuple((d.serial, d.generation, d.available) for d in simulated))
         if signature == self._selector_signature:
             return
         self._selector_signature = signature
@@ -255,18 +268,20 @@ class WorkspaceShell(QWidget):
         for device in observed:
             self.device_selector.addItem(f"{device.model or device.serial} · {'connected' if device.available else device.state}", device.serial)
             self.device_selector.setItemData(self.device_selector.count() - 1, device.serial, Qt.ItemDataRole.ToolTipRole)
+        if simulated:
+            self.device_selector.insertSeparator(self.device_selector.count())
+            for info in simulated:
+                self.device_selector.addItem(info.name + " · SIMULATED" + (" (stopped)" if not info.available else ""), info.serial)
+                self.device_selector.setItemData(self.device_selector.count()-1, SIMULATION_LABEL, Qt.ItemDataRole.ToolTipRole)
         self.device_selector.setCurrentIndex(max(0, self.device_selector.findData(selected)))
         del blocker
 
     def _select_device(self, index):
         serial = self.device_selector.itemData(index)
-        if serial is None:
-            self.window.devices.setCurrentRow(-1)
+        if is_simulation(serial):
+            self.window.select_simulation(serial)
         else:
-            for row in range(self.window.devices.count()):
-                if self.window.devices.item(row).data(Qt.ItemDataRole.UserRole).serial == serial:
-                    self.window.devices.setCurrentRow(row)
-                    break
+            self.window.select_real_device(serial)
 
     def save(self):
         self.window.settings.setValue("last_workspace", self.current)

@@ -13,7 +13,7 @@ from PySide6.QtCore import (QIODevice, QObject, QPointF, QRectF, QRunnable,
                             QSaveFile, QThreadPool, Qt, Signal, Slot)
 from PySide6.QtGui import QColor, QImage, QPainter, QPen
 from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFileDialog,
-                               QHBoxLayout, QLabel, QLineEdit, QPushButton, QTabWidget, QVBoxLayout, QWidget)
+                               QComboBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QTabWidget, QVBoxLayout, QWidget)
 
 from app.projects.assets import android_region, reference_code
 from app.streaming.coordinates import Viewport
@@ -32,6 +32,7 @@ def image_rgb(image: QImage) -> np.ndarray:
 
 class SelectionCanvas(QWidget):
     selected = Signal(object)
+    pixel_hovered = Signal(int, int, object)
 
     def __init__(self, image: QImage, parent: QWidget | None = None):
         super().__init__(parent)
@@ -70,10 +71,19 @@ class SelectionCanvas(QWidget):
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
             self._anchor = self._point(event.position())
+            self._emit_pixel(event.position())
 
     def mouseMoveEvent(self, event):
+        self._emit_pixel(event.position())
         if self._anchor is not None and event.buttons() & Qt.MouseButton.LeftButton:
             self._extend(event.position())
+
+    def _emit_pixel(self, position):
+        point = self._point(position)
+        if point is not None:
+            x,y = point
+            color = self.image.pixelColor(x,y)
+            self.pixel_hovered.emit(x,y,(color.red(),color.green(),color.blue()))
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton and self._anchor is not None:
@@ -169,6 +179,8 @@ class CaptureDialog(QDialog):
         layout = QVBoxLayout(self)
         self.instructions = QLabel("Frozen device frame. Drag a rectangle to crop; coordinates below use Android pixels.")
         self.instructions.setWordWrap(True)
+        if serial.startswith("sim://"):
+            self.instructions.setText("SIMULATED DEVICE — NOT CONNECTED TO ANDROID HARDWARE\nFrozen simulation pixels. Drag a crop; coordinates use the original simulated screen.")
         layout.addWidget(self.instructions)
         self.canvas = SelectionCanvas(self.frame)
         self.canvas.selected.connect(self._selection_changed)
@@ -207,6 +219,9 @@ class CaptureDialog(QDialog):
         self.scales.setToolTip("Explicit template scales: 0.75, 1, 1.25 (1–16 values between 0.1 and 4)")
         search_controls.addWidget(QLabel("Template scales"))
         search_controls.addWidget(self.scales)
+        self.preprocessing = QComboBox()
+        self.preprocessing.addItems(["none", "grayscale", "threshold", "edges"])
+        search_controls.addWidget(self.preprocessing)
         self.search_selection = QCheckBox("Search only selected rectangle")
         search_controls.addWidget(self.search_selection)
         layout.addLayout(search_controls)
@@ -285,6 +300,7 @@ class CaptureDialog(QDialog):
             self.result.setText(str(error))
             return
         threshold = self.threshold.value()
+        preprocessing = self.preprocessing.currentText()
         provider = self.test_frame_provider
         expected_size = (self.frame.width(), self.frame.height())
 
@@ -295,7 +311,7 @@ class CaptureDialog(QDialog):
             if (fresh.width(), fresh.height()) != expected_size:
                 raise ValueError("Device resolution or streaming quality changed; recapture the target before matching")
             matches = find_scaled(image_rgb(fresh), template, threshold, region,
-                                  scales=scales, max_results=100)
+                                  scales=scales, max_results=100, preprocess=preprocessing)
             return fresh.copy(), matches
 
         self._busy = True
