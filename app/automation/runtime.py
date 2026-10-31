@@ -555,6 +555,12 @@ class RuntimeCoordinator:
                 except (OSError, ValueError, UnicodeError) as error:
                     reader.close()
                     run.reader = None
+                    # Windows named pipes report a closed writer as ERROR_BROKEN_PIPE
+                    # from poll/recv instead of EOFError. Preserve the terminal
+                    # status already received; _refresh still fails workers that
+                    # exit without sending one.
+                    if isinstance(error, OSError) and getattr(error, "winerror", None) == 109:
+                        continue
                     run.cancelled.set()
                     run.info = replace(run.info, state="failed")
                     events.append({"event": "error", "run_id": run.info.run_id,

@@ -115,3 +115,61 @@ def test_output_is_json_and_bounded():
         outputs = [event["text"] for event in events if event["event"] == "output"]
         assert "".join(outputs) == "x" * 20000 + "\n"
         assert max(map(len, outputs)) <= 2048
+
+
+class WindowsClosedPipe:
+    """Exercise Windows' close signal over a real spawned worker connection."""
+
+    def __init__(self, connection, winerror=109):
+        self.connection = connection
+        self.winerror = winerror
+
+    def poll(self, timeout):
+        return self.connection.poll(timeout)
+
+    def recv_bytes(self, limit):
+        try:
+            return self.connection.recv_bytes(limit)
+        except EOFError:
+            error = OSError("The pipe has been ended")
+            error.winerror = self.winerror
+            raise error
+
+    def close(self):
+        self.connection.close()
+
+
+@pytest.mark.parametrize("source,expected", [
+    ("tap(1, 2)", "completed"),
+    ("raise ValueError('fixture failure')", "failed"),
+    ("import os; os._exit(0)", "failed"),
+])
+def test_windows_pipe_eof_preserves_terminal_status_and_requires_result(source, expected):
+    with RuntimeCoordinator() as runtime:
+        run_id = runtime.start(source, "fixture-one", trusted=True)
+        run = runtime._runs[run_id]
+        run.reader = WindowsClosedPipe(run.reader)
+        events = collect_finished(runtime, [run_id])
+        assert runtime.snapshot()[0].state == expected
+        assert not any(event.get("error_type") == "IPCError" for event in events)
+
+
+def test_windows_pipe_eof_preserves_forced_cancellation():
+    with RuntimeCoordinator() as runtime:
+        run_id = runtime.start("while True: pass", "fixture-one", trusted=True)
+        run = runtime._runs[run_id]
+        run.reader = WindowsClosedPipe(run.reader)
+        runtime.cancel(run_id, grace=0)
+        events = collect_finished(runtime, [run_id])
+        assert runtime.snapshot()[0].state == "cancelled"
+        assert not any(event.get("error_type") == "IPCError" for event in events)
+
+
+def test_other_windows_pipe_errors_still_fail_closed():
+    with RuntimeCoordinator() as runtime:
+        run_id = runtime.start("pass", "fixture-one", trusted=True)
+        run = runtime._runs[run_id]
+        run.reader = WindowsClosedPipe(run.reader, winerror=5)
+        events = collect_finished(runtime, [run_id])
+        assert runtime.snapshot()[0].state == "failed"
+        assert any(event.get("error_type") == "IPCError" for event in events)

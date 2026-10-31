@@ -8,7 +8,8 @@ from __future__ import annotations
 
 from PySide6.QtCore import QSignalBlocker, Qt, Signal
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QHBoxLayout, QLabel,
-                              QPlainTextEdit, QVBoxLayout, QWizard, QWizardPage)
+                              QPlainTextEdit, QScrollArea, QSizePolicy, QVBoxLayout,
+                              QWidget, QWizard, QWizardPage)
 
 from app.simulation.model import is_simulation
 from app.ui.components import button, label
@@ -20,7 +21,16 @@ class ObservedPage(QWizardPage):
         self.setTitle(title)
         self.setSubTitle(subtitle)
         self.complete = False
-        self.content = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding)
+        body = QWidget()
+        self.content = QVBoxLayout(body)
+        scroll.setWidget(body)
+        outer.addWidget(scroll)
 
     def isComplete(self):
         return self.complete

@@ -72,7 +72,7 @@ def main(directory):
     references = []
     dialog.asset_saved.connect(lambda path, region: saved.append((path, region)))
     dialog.reference_ready.connect(references.append)
-    path = directory / 'quote" téléphone.png'
+    path = directory / "quote' téléphone.png"
     old_dialog = QFileDialog.getSaveFileName
     QFileDialog.getSaveFileName = lambda *args, **kwargs: (str(path), "PNG (*.png)")
     try:
@@ -84,7 +84,7 @@ def main(directory):
     assert saved[0][1] == Region(6, 9, 30, 36)
     code = ast.parse(references[0])
     assert len(code.body) == 1
-    assert ast.literal_eval(code.body[0].value) == '../quote" téléphone.png'
+    assert ast.literal_eval(code.body[0].value) == "../quote' téléphone.png"
     try:
         dialog.save_to(directory / "missing" / "must-not-create.png")
     except OSError:
