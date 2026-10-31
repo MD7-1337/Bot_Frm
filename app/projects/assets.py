@@ -48,5 +48,6 @@ def reference_code(path: Path, script_directory: Path | None = None) -> str:
             reference = os.path.relpath(path, Path(script_directory).resolve())
         except ValueError:  # Different Windows drives cannot form a relative path.
             pass
-    reference = reference.replace(os.sep, "/")
+        else:
+            reference = reference.replace(os.sep, "/")
     return "image_path = " + json.dumps(reference, ensure_ascii=True) + "\n"

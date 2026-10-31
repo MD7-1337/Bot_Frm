@@ -33,7 +33,16 @@ def test_recorder_roundtrip_is_data_only_and_replaces_transactionally(tmp_path):
     assert loaded.actions == before
 
 
-@pytest.mark.parametrize("data", ["not-json", "[]", '{"schema_version":2}', '{"schema_version":1}', "x" * 1_000_001])
+@pytest.mark.parametrize(
+    "data",
+    [
+        pytest.param("not-json", id="not-json"),
+        pytest.param("[]", id="wrong-type"),
+        pytest.param('{"schema_version":2}', id="wrong-schema"),
+        pytest.param('{"schema_version":1}', id="missing-actions"),
+        pytest.param("x" * 1_000_001, id="oversized"),
+    ],
+)
 def test_invalid_session_documents(data):
     with pytest.raises(ValueError):
         ActionRecorder().load_session(data)
