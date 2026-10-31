@@ -2,7 +2,7 @@
 FROM ubuntu:22.04 AS builder
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates python3 python3-pip binutils libegl1 libgl1 libopengl0 \
+    ca-certificates python3 python3-pip binutils build-essential pkg-config libegl1 libgl1 libopengl0 \
     libglib2.0-0 libfontconfig1 libfreetype6 libxi6 libxkbfile1 libxss1 libxtst6 libcups2 libpulse0 \
     libnss3 libnspr4 libasound2 libxkbcommon-x11-0 libxcb-cursor0 \
     libxcb-icccm4 libxcb-keysyms1 libxcb-image0 libxcb-render-util0 \
@@ -23,6 +23,10 @@ RUN --mount=type=secret,id=proxy_ca,required=true \
     SSL_CERT_FILE=/run/secrets/proxy_ca uv pip install --python .venv/bin/python PyInstaller==6.12.0
 ARG STUDIO_BUILD_COMMIT=uncommitted-workspace
 ENV STUDIO_BUILD_COMMIT=${STUDIO_BUILD_COMMIT}
+ENV STUDIO_LGPL_RUNTIME_DIR=/src/build/lgpl-runtime
+RUN --mount=type=secret,id=proxy_ca,required=true \
+    SSL_CERT_FILE=/run/secrets/proxy_ca .venv/bin/python tools/build_lgpl_runtime.py --output build/lgpl-runtime && \
+    SSL_CERT_FILE=/run/secrets/proxy_ca uv pip install --python .venv/bin/python --reinstall build/lgpl-runtime/wheelhouse/*.whl
 # These flags belong only to this isolated headless/root build-test invocation.
 # The distributed launcher never exports a sandbox override.
 RUN QT_QPA_PLATFORM=offscreen QTWEBENGINE_DISABLE_SANDBOX=1 \

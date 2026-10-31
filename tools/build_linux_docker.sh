@@ -4,6 +4,13 @@
 set -euo pipefail
 studio_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$studio_root"
+studio_output="${1:-$studio_root/dist/lgpl}"
+mkdir -p "$studio_output"
+studio_output="$(cd -- "$studio_output" && pwd)"
+if [ -e "$studio_output/AndroidAutomationStudio-ubuntu-x86_64.tar.gz" ]; then
+    printf '%s\n' 'Choose an empty output directory; existing archives are preserved.' >&2
+    exit 1
+fi
 studio_docker=(env -u DOCKER_HOST -u DOCKER_CONTEXT -u DOCKER_TLS -u DOCKER_TLS_VERIFY -u DOCKER_CERT_PATH docker --host=unix:///var/run/docker.sock)
 studio_ca="${STUDIO_BUILD_CA_BUNDLE:-/etc/ssl/certs/ca-certificates.crt}"
 if [ ! -r "$studio_ca" ]; then
@@ -17,10 +24,9 @@ if ! git diff --quiet HEAD; then studio_commit="${studio_commit}-dirty"; fi
     -f packaging/Dockerfile.ubuntu22 -t android-automation-studio-ubuntu22:local .
 studio_container="$("${studio_docker[@]}" create android-automation-studio-ubuntu22:local)"
 trap '"${studio_docker[@]}" rm "$studio_container" >/dev/null' EXIT
-mkdir -p dist
 for studio_file in AndroidAutomationStudio-ubuntu-x86_64.tar.gz \
     AndroidAutomationStudio-ubuntu-x86_64.tar.gz.sha256 \
     linux-frozen-smoke.json ubuntu22-clean-runtime-smoke.json ubuntu22-runtime-info.txt; do
-    "${studio_docker[@]}" cp "$studio_container:/artifacts/$studio_file" "dist/$studio_file"
+    "${studio_docker[@]}" cp "$studio_container:/artifacts/$studio_file" "$studio_output/$studio_file"
 done
-printf '%s\n' "Built and tested artifact: $studio_root/dist/AndroidAutomationStudio-ubuntu-x86_64.tar.gz"
+printf '%s\n' "Built and tested artifact: $studio_output/AndroidAutomationStudio-ubuntu-x86_64.tar.gz"

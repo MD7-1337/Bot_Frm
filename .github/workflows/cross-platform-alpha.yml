@@ -29,6 +29,7 @@ jobs:
       STUDIO_GUI_TESTS: '1'
       QT_QPA_PLATFORM: offscreen
       QTWEBENGINE_CHROMIUM_FLAGS: --disable-gpu
+      STUDIO_LGPL_RUNTIME_DIR: build/lgpl-runtime
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -58,6 +59,27 @@ jobs:
         run: ${{ matrix.python }} tools/ci_test_report.py source-tests.xml
       - name: Measure actual independent simulation workers
         run: ${{ matrix.python }} tools/benchmark_workers.py --output worker-benchmark.json
+      - name: Initialize native Windows compiler
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      - name: Install Windows FFmpeg build shell
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MSYS
+          path-type: inherit
+          install: make diffutils pkgconf
+      - name: Build LGPL FFmpeg and PyAV from verified sources (Windows)
+        if: runner.os == 'Windows'
+        run: ${{ matrix.python }} tools/ci_build.py tools/build_lgpl_runtime.py --output build/lgpl-runtime --bash C:/msys64/usr/bin/bash.exe
+      - name: Build LGPL FFmpeg and PyAV from verified sources (Ubuntu)
+        if: runner.os == 'Linux'
+        run: ${{ matrix.python }} tools/ci_build.py tools/build_lgpl_runtime.py --output build/lgpl-runtime
+      - name: Install the verified LGPL runtime for packaging
+        shell: bash
+        run: uv pip install --python ${{ matrix.python }} --reinstall build/lgpl-runtime/wheelhouse/*.whl
       - name: Install Inno Setup compiler (CI build machine only)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -69,7 +91,7 @@ jobs:
       - name: Build Windows archive and smoke extracted executable
         id: windows
         if: runner.os == 'Windows'
-        run: ${{ matrix.python }} tools/build_windows.py --installer
+        run: ${{ matrix.python }} tools/ci_build.py tools/build_windows.py --installer
       - name: Install, smoke and uninstall per-user Windows package
         if: runner.os == 'Windows'
         shell: pwsh
@@ -77,7 +99,7 @@ jobs:
       - name: Build Ubuntu archive and smoke extracted executable
         id: linux
         if: runner.os == 'Linux'
-        run: ${{ matrix.python }} tools/build_linux.py
+        run: ${{ matrix.python }} tools/ci_build.py tools/build_linux.py
       - name: Hold binary publication pending dependency license review
         id: distribution
         continue-on-error: true
@@ -107,6 +129,7 @@ jobs:
             dist/*manifest.json
             dist/*validation.json
             build/release-notices/inventory.json
+            build/lgpl-runtime/lgpl-runtime.json
       - name: Enforce the source acceptance gate
         if: steps.source.outcome != 'success'
         run: ${{ matrix.python }} -c "raise SystemExit('Source regression failed; any smoke-verified artifact remains Alpha developer review only. Read the test evidence.')"

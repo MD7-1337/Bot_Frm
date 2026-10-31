@@ -73,6 +73,8 @@ def test_ci_failure_annotations_escape_control_characters_and_preserve_counts(tm
     monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
     assert reporter.publish(source) == 1
     output = capsys.readouterr().out
-    assert output.count("\n") == 1
+    assert output.count("\n") == 2
+    assert output.startswith("::notice title=Source regression totals::1 passed, 1 failed/error, 1 skipped.")
+    assert output.splitlines()[1].startswith("::error title=Regression failure::")
     assert "x%25 y%0A::error::injected" in output
     assert "1 passed, 1 failed/error, 1 skipped" in summary.read_text()

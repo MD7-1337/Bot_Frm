@@ -18,6 +18,7 @@ def publish(path: Path):
     skipped = sum(case.find("skipped") is not None for case in cases)
     summary = ["## Source regression results", "",
                f"{len(cases)-len(failures)-skipped} passed, {len(failures)} failed/error, {skipped} skipped.", ""]
+    print(f"::notice title=Source regression totals::{escape(summary[2])}")
     for case, detail in failures[:20]:
         identity = f"{case.get('classname', '')}::{case.get('name', '')}"
         message = (detail.get("message") or detail.text or "Failed")[:1500]

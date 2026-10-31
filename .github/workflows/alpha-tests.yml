@@ -67,13 +67,13 @@ jobs:
           QT_QPA_PLATFORM: offscreen
           QTWEBENGINE_CHROMIUM_FLAGS: --disable-gpu
         run: .venv/Scripts/python.exe tools/build_windows.py
-      - name: Upload developer portable and exact evidence
+      # Binary publication requires the LGPL build and redistribution gate in
+      # cross-platform-alpha.yml. This older job retains validation evidence only.
+      - name: Upload native build validation evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: windows-x64-developer-portable
+          name: windows-x64-build-evidence
           path: |
-            dist/*portable.zip
-            dist/*.sha256
             dist/windows-frozen-smoke.json
             build/release-notices/inventory.json
