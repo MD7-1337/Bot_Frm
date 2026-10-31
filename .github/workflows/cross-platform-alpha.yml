@@ -78,8 +78,12 @@ jobs:
         id: linux
         if: runner.os == 'Linux'
         run: ${{ matrix.python }} tools/build_linux.py
+      - name: Hold binary publication pending dependency license review
+        id: distribution
+        continue-on-error: true
+        run: ${{ matrix.python }} -c "raise SystemExit('Binary upload blocked pending exact Qt/Chromium/Python notices and FFmpeg distribution review. Source and native package tests may run; no binary release is cleared.')"
       - name: Upload smoke-verified developer applications
-        if: success()
+        if: success() && steps.distribution.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: AndroidAutomationStudio-${{ matrix.platform }}-${{ github.sha }}
@@ -106,3 +110,6 @@ jobs:
       - name: Enforce the source acceptance gate
         if: steps.source.outcome != 'success'
         run: ${{ matrix.python }} -c "raise SystemExit('Source regression failed; any smoke-verified artifact remains Alpha developer review only. Read the test evidence.')"
+      - name: Enforce the binary redistribution gate
+        if: steps.distribution.outcome == 'failure'
+        run: ${{ matrix.python }} -c "raise SystemExit('Binary redistribution is blocked; inspect dependency license findings. No Windows/Ubuntu binary artifact was uploaded.')"
