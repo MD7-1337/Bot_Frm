@@ -507,9 +507,11 @@ class RuntimeCoordinator:
             received = False
             for run in self._runs.values():
                 reader = run.reader
-                if reader is None or not reader.poll(0):
+                if reader is None:
                     continue
                 try:
+                    if not reader.poll(0):
+                        continue
                     data = reader.recv_bytes(MAX_MESSAGE_BYTES)
                     event = json.loads(data)
                     if not isinstance(event, dict) or event.get("run_id") != run.info.run_id or event.get("serial") != run.info.serial:
