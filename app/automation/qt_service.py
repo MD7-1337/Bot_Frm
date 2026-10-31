@@ -87,12 +87,24 @@ class RuntimeService(QObject):
         adb_executable: str = "adb", script_id: str = "<script>",
         project_root: str | Path | None = None, mock_config: dict | None = None, simulation_config: dict | None = None, ocr_config: dict | None = None,
         debug: bool = False, breakpoints: list[int] | None = None,
+        debug_sources: dict | None = None, file_breakpoints: dict | None = None,
     ) -> str:
         """Queue a trusted script; return request ID without compiling or spawning."""
         if self._emergency_latched.is_set():
             raise RuntimeError("Emergency stop is latched; reset it before starting scripts")
         if not isinstance(source, str) or len(source) > MAX_SOURCE_BYTES:
             raise ValueError("Source must be a string of at most 1 MiB")
+        # Own the queued snapshot, rather than retaining mutable host mappings
+        # across the asynchronous handoff to the coordinator thread.
+        if debug_sources is not None:
+            if not isinstance(debug_sources, dict):
+                raise ValueError('Debug sources must be a dictionary')
+            debug_sources = dict(debug_sources)
+        if file_breakpoints is not None:
+            if not isinstance(file_breakpoints, dict):
+                raise ValueError('File breakpoints must be a dictionary')
+            file_breakpoints = {path: list(lines) if isinstance(lines, (list, tuple)) else lines
+                                for path, lines in file_breakpoints.items()}
         self._validate_serial(serial)
         with self._devices_lock:
             device = self._devices.setdefault(serial, _DeviceConnection())
@@ -102,7 +114,8 @@ class RuntimeService(QObject):
         return self._submit("start", source=source, serial=serial, trusted=trusted,
                             backend=backend, adb_executable=adb_executable, script_id=script_id,
                             project_root=project_root, mock_config=mock_config, simulation_config=simulation_config, ocr_config=ocr_config,
-                            debug=debug, breakpoints=breakpoints,
+                            debug=debug, breakpoints=breakpoints, debug_sources=debug_sources,
+                            file_breakpoints=file_breakpoints,
                             _connection_generation=generation)
 
     @staticmethod

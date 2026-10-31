@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
 import json
+import math
 import os
 from pathlib import Path, PurePosixPath
 import re
@@ -110,11 +111,42 @@ def _validate(data: dict) -> dict:
         raise ProjectError("Project autosave must be a boolean")
     if not isinstance(data.get("recognition", {}), dict):
         raise ProjectError("Project recognition settings must be an object")
-    for key in ("run_configurations", "task_definitions"):
+    for key in ("run_configurations", "task_definitions", "workflow_definitions"):
         if not isinstance(data.get(key, []), list):
             raise ProjectError(f"Project {key} must be a list")
     _json(data)
     return data
+
+
+def validate_configuration(recognition, runs):
+    """Validate the explicitly supported recognition and script-open presets."""
+    if not isinstance(recognition, dict) or set(recognition) - {"threshold", "scales", "preprocessing", "region"}:
+        raise ProjectError("Recognition supports threshold, scales, preprocessing and optional region")
+    threshold = recognition.get("threshold", .85)
+    if isinstance(threshold, bool) or not isinstance(threshold, (int, float)) or not math.isfinite(threshold) or not 0 <= threshold <= 1:
+        raise ProjectError("Recognition threshold must be finite and between 0 and 1")
+    scales = recognition.get("scales", [1.0])
+    if not isinstance(scales, list) or not 1 <= len(scales) <= 16 or any(isinstance(s, bool) or not isinstance(s, (int, float)) or not math.isfinite(s) or not .1 <= s <= 4 for s in scales):
+        raise ProjectError("Recognition scales require 1–16 finite values from 0.1 to 4")
+    if recognition.get("preprocessing", "none") not in ("none", "grayscale", "threshold", "edges"):
+        raise ProjectError("Unsupported recognition preprocessing")
+    region = recognition.get("region")
+    if region is not None and (not isinstance(region, list) or len(region) != 4 or any(type(n) is not int for n in region) or any(n < 0 for n in region[:2]) or any(n <= 0 for n in region[2:])):
+        raise ProjectError("Recognition region must be [x, y, width, height] with valid positive extent")
+    if not isinstance(runs, list) or len(runs) > 100:
+        raise ProjectError("At most 100 script run configurations are supported")
+    names = set()
+    for run in runs:
+        if not isinstance(run, dict) or set(run) != {"name", "script"}:
+            raise ProjectError("A run configuration contains name and project-relative script")
+        name = _name(run["name"])
+        if name.casefold() in names:
+            raise ProjectError("Run configuration names must be unique")
+        names.add(name.casefold())
+        path = _safe_path(run["script"])
+        if path.suffix.casefold() != ".py":
+            raise ProjectError("Run configuration scripts must be Python files")
+    return deepcopy(recognition), deepcopy(runs)
 
 
 def _atomic(path: Path, payload: bytes, *, exclusive=False) -> None:
@@ -261,6 +293,75 @@ class ProjectStore:
         data = self.metadata
         data["name"] = _name(name)
         self.save(data)
+
+    def configure(self, recognition, runs):
+        recognition, runs = validate_configuration(recognition, runs)
+        data = self.metadata
+        data.update(recognition=recognition, run_configurations=runs)
+        self.save(data)
+
+    def configured_script(self, name):
+        _, runs = validate_configuration(self.metadata.get("recognition", {}), self.metadata.get("run_configurations", []))
+        entry = next((item for item in runs if item["name"] == name), None)
+        if entry is None:
+            raise ProjectError("Choose an existing run configuration")
+        path = self.root.joinpath(*_safe_path(entry["script"]).parts).resolve(strict=True)
+        if not path.is_relative_to(self.root) or not path.is_file() or path.stat().st_size > MAX_MANIFEST_BYTES:
+            raise ProjectError("Configured script must remain a bounded file inside this project")
+        return path
+
+    def recognition_code(self, reference):
+        from app.projects.library import AssetLibrary
+        AssetLibrary(self.root).resolve(reference)
+        recognition, _ = validate_configuration(self.metadata.get("recognition", {}), self.metadata.get("run_configurations", []))
+        code = "target = Pattern(" + json.dumps(str(reference), ensure_ascii=True) + ")"
+        code += f".similar({recognition.get('threshold', .85)!r})"
+        code += ".atScales(" + ", ".join(repr(n) for n in recognition.get("scales", [1.0])) + ")"
+        code += ".preprocess(" + json.dumps(recognition.get("preprocessing", "none")) + ")"
+        if region := recognition.get("region"):
+            code += ".inRegion(Region(" + ", ".join(str(n) for n in region) + "))"
+        return code + "\n"
+
+    def trash(self, confirmation):
+        """Reversible project deletion: move everything into a sibling trash folder."""
+        if confirmation != self.metadata["name"]:
+            raise ProjectError("Type the exact project display name to move it to trash")
+        root = _root(self.root)
+        if root == root.parent or root == Path.home().resolve():
+            raise ProjectError("This directory cannot be moved to project trash")
+        if hashlib.sha256(_read_manifest(root)).hexdigest() != self._fingerprint:
+            raise ProjectConflictError("Project metadata changed; reopen before moving it")
+        trash = root.parent / ".studio-trash"
+        if trash.is_symlink() or (trash.exists() and not trash.is_dir()):
+            raise ProjectError("Project trash must be a regular sibling directory")
+        trash.mkdir(exist_ok=True)
+        destination = trash / (root.name + "-" + uuid4().hex)
+        root.rename(destination)
+        return destination
+
+    @classmethod
+    def recover_manifest(cls, root, backup):
+        """Restore validated metadata while preserving the current corrupt bytes."""
+        root = _root(root)
+        backup = Path(backup).expanduser()
+        if backup.is_symlink() or not backup.is_file() or backup.stat().st_size > MAX_MANIFEST_BYTES:
+            raise ProjectError("Choose a bounded regular metadata backup")
+        data = _decode(backup.read_bytes())
+        if data["schema_version"] == 1:
+            stamp = _utc()
+            data = {**data, "schema_version": SCHEMA_VERSION, "id": uuid4().hex,
+                    "name": _name(data.get("name", root.name)), "created_at": stamp,
+                    "updated_at": stamp, "autosave": False, "recognition": data.get("recognition", {}),
+                    "run_configurations": data.get("run_configurations", []),
+                    "task_definitions": data.get("task_definitions", [])}
+        data = _validate(data)
+        payload = _json(data)
+        before = _read_manifest(root)
+        _atomic(root / (".project-before-recovery-" + uuid4().hex + ".json"), before, exclusive=True)
+        if _read_manifest(root) != before:
+            raise ProjectConflictError("Manifest changed during recovery; current bytes were preserved")
+        _atomic(root / MANIFEST, payload)
+        return cls.open(root)
 
     def files(self) -> list[tuple[Path, str]]:
         """Collect only portable project content; reject included symlinks."""

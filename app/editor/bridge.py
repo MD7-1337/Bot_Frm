@@ -69,6 +69,7 @@ def source_diagnostics(source: str) -> list[dict]:
 class EditorBridge(QObject):
     ready = Signal()
     changed = Signal(str)
+    snapshot_changed = Signal(object)
     failed = Signal(str)
     breakpoints_changed = Signal(object)
 
@@ -93,6 +94,16 @@ class EditorBridge(QObject):
         else:
             self.failed.emit("Document exceeds editor size limit")
 
+    @Slot(str, int, str)
+    def documentSnapshotChanged(self, key: str, revision: int, source: str) -> None:
+        """Document identity is metadata, never authority to execute anything."""
+        if not isinstance(key, str) or len(key) > 4096 or type(revision) is not int or not 0 <= revision < 2**31:
+            return
+        if len(source) <= MAX_SOURCE:
+            self.snapshot_changed.emit({'key': key, 'revision': revision, 'source': source})
+        else:
+            self.failed.emit('Document exceeds editor size limit')
+
     @Slot(str)
     def breakpointsChanged(self, raw: str) -> None:
         # Source metadata only: this slot cannot start or control any execution.
@@ -103,16 +114,23 @@ class EditorBridge(QObject):
         except (ValueError, TypeError):
             return
         key = None
+        revision = None
         if isinstance(payload, dict):
             key = payload.get("key")
             if not isinstance(key, str) or len(key) > 4096:
                 return
             lines = payload.get("lines")
+            revision = payload.get('revision')
+            if revision is not None and (type(revision) is not int or not 0 <= revision < 2**31):
+                return
         else:
             lines = payload
         if not isinstance(lines, list) or len(lines) > 1000 or any(type(line) is not int or not 1 <= line <= 1_000_000 for line in lines):
             return
-        self.breakpoints_changed.emit({"key": key, "lines": sorted(set(lines))} if key is not None else sorted(set(lines)))
+        metadata = {"key": key, "lines": sorted(set(lines))}
+        if revision is not None:
+            metadata['revision'] = revision
+        self.breakpoints_changed.emit(metadata if key is not None else sorted(set(lines)))
 
     @Slot(str, result=str)
     def diagnostics(self, source: str) -> str:

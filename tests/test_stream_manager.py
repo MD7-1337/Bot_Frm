@@ -80,7 +80,8 @@ def test_limit_error_isolation_and_nonblocking_close(fixture_manager):
     streams = fixture_manager
     streams.start("phone-A")
     streams.start("phone-B")
-    spin(lambda: streams.status("phone-A").state == "streaming")
+    spin(lambda: streams.status("phone-A").state == "streaming"
+         and streams.latest("phone-B") is not None)
     with pytest.raises(StreamError, match="Maximum"):
         streams.start("phone-C")
     first = FixtureSession.instances["phone-A"]

@@ -4,10 +4,10 @@ from __future__ import annotations
 import json
 import time
 
-from PySide6.QtCore import QSignalBlocker, Qt, Signal
+from PySide6.QtCore import QIODevice, QSaveFile, QSignalBlocker, Qt, Signal
 from PySide6.QtWidgets import (QApplication, QCheckBox, QFormLayout, QGridLayout,
                               QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit, QProgressBar,
-                              QSplitter, QTabWidget, QVBoxLayout, QWidget)
+                              QFileDialog, QMessageBox, QSplitter, QTabWidget, QVBoxLayout, QWidget)
 
 from app.devices.adb import DeviceInfo, validate_endpoint
 from app.ui.components import button, label, scroll, surface
@@ -25,6 +25,7 @@ class DeviceManagerPanel(QWidget):
     diagnose_requested = Signal()
     cancel_diagnostics_requested = Signal()
     settings_requested = Signal()
+    wizard_requested = Signal()
 
     def __init__(self, devices, settings, parent=None):
         super().__init__(parent)
@@ -47,6 +48,7 @@ class DeviceManagerPanel(QWidget):
         status_row = QHBoxLayout()
         status_row.addWidget(self.connection_status, stretch=1)
         status_row.addWidget(button("Diagnose Connection", lambda: self.diagnose_requested.emit()))
+        status_row.addWidget(button("Connection wizard…", self.wizard_requested.emit))
         outer.addLayout(status_row)
         split = QSplitter()
         self.split = split
@@ -132,14 +134,16 @@ class DeviceManagerPanel(QWidget):
         checks.addWidget(self.check_video)
         checks.addWidget(self.redact_serials)
         diagnostics_layout.addLayout(checks)
-        actions = QHBoxLayout()
+        actions = QGridLayout()
         self.diagnose_button = button("Diagnose Connection", self.diagnose_requested.emit, primary=True)
         self.cancel_diagnostics = button("Cancel check", self.cancel_diagnostics_requested.emit)
         self.cancel_diagnostics.setEnabled(False)
         self.copy_report_button = button("Copy Diagnostic Report", self.copy_report)
         self.copy_report_button.setEnabled(False)
-        for widget in (self.diagnose_button, self.cancel_diagnostics, self.copy_report_button):
-            actions.addWidget(widget)
+        self.export_report_button = button("Export Diagnostics…", self.export_report)
+        self.export_report_button.setEnabled(False)
+        for index, widget in enumerate((self.diagnose_button, self.cancel_diagnostics, self.copy_report_button, self.export_report_button)):
+            actions.addWidget(widget, index // 2, index % 2)
         diagnostics_layout.addLayout(actions)
         self.progress = QProgressBar()
         self.progress.setRange(0, 0)
@@ -184,6 +188,7 @@ class DeviceManagerPanel(QWidget):
             self._diagnostic_steps.clear()
             self.diagnostic_output.clear()
             self.copy_report_button.setEnabled(False)
+            self.export_report_button.setEnabled(False)
 
     def diagnostic_step(self, step):
         self._diagnostic_steps[step.key] = step
@@ -193,6 +198,7 @@ class DeviceManagerPanel(QWidget):
         self.report = report
         self._render_report()
         self.copy_report_button.setEnabled(True)
+        self.export_report_button.setEnabled(True)
 
     def _render_report(self):
         if self.report is not None:
@@ -205,6 +211,27 @@ class DeviceManagerPanel(QWidget):
 
     def add_history(self, message):
         self.history.appendPlainText(time.strftime("%H:%M:%S  ") + str(message))
+
+    def export_report(self):
+        """Save the same explicit-redaction report as Copy, without screen pixels."""
+        if self.report is None:
+            return
+        path, _ = QFileDialog.getSaveFileName(self, "Export connection diagnostics", "connection-diagnostics.txt", "Text (*.txt)")
+        if not path:
+            return
+        try:
+            output = QSaveFile(path)
+            if not output.open(QIODevice.OpenModeFlag.WriteOnly):
+                raise OSError(output.errorString())
+            data = self.report.text(self.redact_serials.isChecked()).encode("utf-8")
+            if output.write(data) != len(data):
+                output.cancelWriting()
+                raise OSError(output.errorString())
+            if not output.commit():
+                raise OSError(output.errorString())
+            self.connection_status.setText("Diagnostic report exported. Review host/path details before sharing; no screenshots or pairing codes are included.")
+        except (OSError, ValueError) as error:
+            QMessageBox.warning(self, "Diagnostic export failed", str(error))
 
     def _endpoint_action(self, signal):
         try:

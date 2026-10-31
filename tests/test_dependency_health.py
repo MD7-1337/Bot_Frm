@@ -37,6 +37,32 @@ def test_monaco_missing_asset_has_supported_repair(tmp_path):
         validate_monaco(tmp_path, manifest=manifest)
 
 
+def test_packaged_monaco_repair_requires_package_not_source_checkout(tmp_path, monkeypatch):
+    monkeypatch.setattr(sys, 'frozen', True, raising=False)
+    path, manifest = vendor_fixture(tmp_path)
+    path.unlink()
+    with pytest.raises(MonacoAssetsError) as failure:
+        validate_monaco(tmp_path, manifest=manifest)
+    assert 'Re-extract or reinstall' in str(failure.value)
+    assert 'fetch_monaco.py' not in str(failure.value)
+    with pytest.raises(MonacoAssetsError, match='manifest'):
+        validate_monaco(tmp_path, manifest={'version':1, 'files':[]})
+
+
+def test_packaged_health_does_not_require_python_or_setup_tools(monkeypatch):
+    monkeypatch.setattr(sys, 'frozen', True, raising=False)
+    def missing(name):
+        raise importlib.metadata.PackageNotFoundError(name)
+    monkeypatch.setattr(importlib.metadata, 'version', missing)
+    monkeypatch.setattr('app.health.shutil.which', lambda path:None)
+    monkeypatch.setattr('app.health.validate_monaco', lambda: (_ for _ in ()).throw(ValueError('missing assets')))
+    report = dependency_health(native=False)
+    repairs = '\n'.join(item['repair'] for item in report['checks'])
+    assert 'fetch_' not in repairs and 'uv sync' not in repairs
+    assert 'Re-extract or reinstall' in repairs
+    assert 'Settings' in repairs and 'platform-tools' in repairs
+
+
 def test_monaco_rejects_self_referential_link_without_loop(tmp_path):
     vendor = tmp_path / "vendor"
     try:

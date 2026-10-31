@@ -94,11 +94,12 @@ class TaskDialog(QDialog):
 
 
 class TaskPanel(QWidget):
-    def __init__(self, store, scheduler, source_provider, authorize_callback=None, parent=None):
+    def __init__(self, store, scheduler, source_provider, authorize_callback=None, parent=None, *, group_provider=None):
         super().__init__(parent)
         self.store, self.scheduler = store, scheduler
         self.source_provider = source_provider
         self.authorize_callback = authorize_callback
+        self.group_provider = group_provider
         self._signature = None
         self._history_signature = None
         layout = QVBoxLayout(self)
@@ -121,6 +122,7 @@ class TaskPanel(QWidget):
         runbar.addWidget(button('Cancel task', self.cancel))
         self.pause_button = button('Resume scheduling', self.toggle_pause)
         runbar.addWidget(self.pause_button)
+        runbar.addWidget(button('Groups and workflows…', self.open_workflows))
         runbar.addStretch()
         layout.addLayout(runbar)
         split = QSplitter(Qt.Orientation.Vertical)
@@ -298,3 +300,16 @@ class TaskPanel(QWidget):
             for column,value in enumerate(values):
                 self.history.setItem(row,column,QTableWidgetItem(value))
         self.history.resizeColumnsToContents()
+
+    def open_workflows(self):
+        from app.ui.workflow_panel import WorkflowPanel
+        dialog=QDialog(self)
+        dialog.setWindowTitle('Device groups and sequential workflows')
+        dialog.resize(960,700)
+        layout=QVBoxLayout(dialog)
+        layout.addWidget(WorkflowPanel(self,self.group_provider,dialog))
+        close=QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        close.rejected.connect(dialog.reject)
+        layout.addWidget(close)
+        dialog.exec()
+        dialog.deleteLater()

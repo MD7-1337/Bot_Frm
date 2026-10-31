@@ -7,25 +7,28 @@ not a feature-complete Alpha candidate or Beta release.
   two-phone independence are **NOT VERIFIED** in this Linux cloud environment.
 - Windows source/packaged runtime and installer are **NOT VERIFIED**. Recipes and
   CI jobs are provided; no portable ZIP or installer artifact is claimed here.
-- Debugger line breakpoints target the main approved script. Imported project
-  frames support stepping/inspection; conditional/function breakpoints, editable
-  imported-file snapshots, watch expressions and evaluation are deferred.
+- Debugger snapshots support bounded project Python imports and per-file
+  breakpoints. Native extensions, already-loaded/outside-project modules and user
+  import hooks retain normal Python behavior. Conditional/function breakpoints,
+  watch expressions and evaluation are deferred.
 - Debugger pause can wait for native code. Stop still uses bounded owned-process
   termination. Arbitrary trusted script descendants are not an OS sandbox.
-- Task queues arbitrate this application instance. Device-group expansion,
-  graphical workflow authoring, holiday calendars, distributed/multiple-instance
-  arbitration and automatic dependency execution are deferred. Dependencies gate
-  on recorded success; they do not secretly start another script.
+- Task queues arbitrate this application instance. Named groups expand into
+  explicit devices; ordered workflows correlate steps to each workflow run.
+  Arbitrary branching graphs, holiday calendars and distributed/multiple-instance
+  arbitration are deferred.
 - Task approval lasts for this application session. Reconnect/reset, restart,
   source changes and emergency stop require approval again. Imported task
-  definitions are disabled/unapproved. Imported Python helpers and image assets
-  are mutable files, not snapshotted dependencies; review the whole project.
+  definitions are disabled/unapproved. Ordinary scheduled runs still read imported
+  Python/helpers/assets from disk; review the whole project. Debug mode captures
+  bounded approved Python imports separately.
 - A scheduler cannot guarantee exactly-once Android actions. Lost acknowledgments
   and interrupted dispatch remain uncertain; unsafe input is never blindly
   retried. Read-only recovery checkpoints are in-memory, not persistent resumes.
 - Project backup/export covers saved files. Dirty editor buffers need explicit
-  saving. Complete autosave/recovery UI, editable run/recognition configuration
-  forms and destructive project deletion are deferred. Archives are bounded and
+  saving; configurable recovery copies preserve unsaved buffers separately.
+  Recognition/run presets are editable and deletion moves projects to reversible
+  trash; permanent deletion is left to the user. Archives are bounded and
   intentionally exclude hidden files, logs and common credential files; review
   scripts for embedded secrets before sharing.
 - Optional OCR requires a locally configured Tesseract engine/languages; stylized

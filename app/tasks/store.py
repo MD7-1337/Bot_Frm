@@ -6,6 +6,7 @@ are persisted. Unknown in-flight results after restart require human inspection.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, replace
+from contextlib import nullcontext
 from datetime import datetime, timedelta, timezone
 import hashlib
 from functools import cached_property
@@ -55,8 +56,7 @@ class Task:
     @cached_property
     def fingerprint(self) -> str:
         # Include every execution-affecting field, not only source text.
-        fields = (self.source, self.serial, self.project_root, self.script_id,
-                  self.max_retries, self.restart_safe, self.timeout_seconds)
+        fields = asdict(self)
         return hashlib.sha256(json.dumps(fields, ensure_ascii=True).encode()).hexdigest()
 
     def validate(self) -> 'Task':
@@ -154,15 +154,26 @@ class TaskStore:
         self._data_version = None
         self.db.execute('PRAGMA foreign_keys=ON')
         version = self.db.execute('PRAGMA user_version').fetchone()[0]
-        if version not in (0, 1):
+        if version not in (0, 1, 2):
             self.db.close()
             raise ValueError(f'Unsupported task database schema {version}; file preserved')
         try:
+            if version == 1:
+                # SQLite's backup API preserves a consistent pre-migration database.
+                backup = self.path.with_name(self.path.name + '.v1-' + uuid4().hex + '.bak')
+                with sqlite3.connect(backup) as saved:
+                    self.db.backup(saved)
             with self.db:
                 self.db.execute('BEGIN IMMEDIATE')
                 self.db.execute('CREATE TABLE IF NOT EXISTS tasks (id TEXT PRIMARY KEY, definition TEXT NOT NULL, fingerprint TEXT NOT NULL, next_due REAL)')
                 self.db.execute('CREATE TABLE IF NOT EXISTS executions (id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id), occurrence TEXT NOT NULL, source_hash TEXT NOT NULL, state TEXT NOT NULL, scheduled REAL NOT NULL, started REAL, finished REAL, request_id TEXT UNIQUE, run_id TEXT UNIQUE, message TEXT NOT NULL DEFAULT \'\', attempt INTEGER NOT NULL DEFAULT 0, UNIQUE(task_id, occurrence))')
-                self.db.execute('PRAGMA user_version=1')
+                self.db.execute('CREATE TABLE IF NOT EXISTS device_groups (name TEXT PRIMARY KEY, members TEXT NOT NULL)')
+                self.db.execute('CREATE TABLE IF NOT EXISTS workflows (id TEXT PRIMARY KEY, definition TEXT NOT NULL, next_due REAL)')
+                self.db.execute("CREATE TABLE IF NOT EXISTS workflow_runs (id TEXT PRIMARY KEY, workflow_id TEXT NOT NULL REFERENCES workflows(id), occurrence TEXT NOT NULL, state TEXT NOT NULL, scheduled REAL NOT NULL, finished REAL, message TEXT NOT NULL DEFAULT '', UNIQUE(workflow_id,occurrence))")
+                self.db.execute('CREATE TABLE IF NOT EXISTS workflow_steps (workflow_run TEXT NOT NULL REFERENCES workflow_runs(id), position INTEGER NOT NULL, task_id TEXT NOT NULL REFERENCES tasks(id), source_hash TEXT NOT NULL, execution_id TEXT REFERENCES executions(id), PRIMARY KEY(workflow_run,position))')
+                self.db.execute('PRAGMA user_version=2')
+                self.db.execute("UPDATE workflow_runs SET state='uncertain',finished=?,message='Application closed before confirmed workflow outcome; approve a new run after inspection' WHERE state='running'", (stamp(utcnow()),))
+                self.db.execute("UPDATE workflow_runs SET state='cancelled',finished=?,message='Pending workflow cancelled after restart' WHERE state='queued'", (stamp(utcnow()),))
                 self.db.execute("UPDATE executions SET state='uncertain', finished=?, message='Application stopped before a confirmed result; inspect device before restarting' WHERE state IN ('dispatching','running','cancelling')", (stamp(utcnow()),))
                 self.db.execute("UPDATE executions SET state='cancelled', finished=?, message='Pending task cancelled after application restart; authorize a fresh run' WHERE state='queued'", (stamp(utcnow()),))
         except BaseException:
@@ -244,7 +255,7 @@ class TaskStore:
             output.append(fields)
         return output
 
-    def import_definitions(self, definitions, project_root):
+    def import_definitions(self, definitions, project_root, *, _within_transaction=False):
         """Import fresh disabled identities atomically; never grant approval."""
         if not isinstance(definitions, list) or len(definitions) > 1000:
             raise ValueError('Task definitions must be a list of at most 1000 entries')
@@ -293,7 +304,7 @@ class TaskStore:
             visited.add(identity)
         for identity in mapped:
             visit(identity)
-        with self.db:
+        with (nullcontext() if _within_transaction else self.db):
             for task in tasks:
                 # Disabled imports have no due trigger until explicitly enabled.
                 self.db.execute('INSERT INTO tasks VALUES(?,?,?,NULL)',
@@ -302,6 +313,8 @@ class TaskStore:
         return tasks
 
     def delete(self, task_id):
+        if any(task_id in workflow.task_ids for workflow in self.workflows()):
+            raise ValueError('Remove the task from saved workflows first')
         if any(task_id in task.dependencies for task in self.tasks()):
             raise ValueError('Remove dependent tasks first')
         with self.db:
@@ -382,3 +395,188 @@ class TaskStore:
         query = 'UPDATE executions SET '+','.join(key+'=?' for key in fields)+f' WHERE id=? AND state IN ({placeholders})'
         with self.db:
             return bool(self.db.execute(query, (*fields.values(), execution_id, *allowed)).rowcount)
+
+    def groups(self):
+        return {row['name']: tuple(json.loads(row['members'])) for row in self.db.execute('SELECT * FROM device_groups ORDER BY name')}
+
+    def save_group(self, name, members):
+        from .workflows import device_members
+        if not isinstance(name,str) or not name.strip() or len(name)>80 or '\x00' in name:
+            raise ValueError('Group name needs 1..80 characters')
+        members = device_members(members)
+        with self.db:
+            if name not in self.groups() and len(self.groups()) >= 100:
+                raise ValueError('At most 100 device groups are supported')
+            self.db.execute('INSERT INTO device_groups VALUES(?,?) ON CONFLICT(name) DO UPDATE SET members=excluded.members', (name.strip(),json.dumps(members)))
+
+    def delete_group(self, name):
+        with self.db:
+            self.db.execute('DELETE FROM device_groups WHERE name=?',(name,))
+
+    def expand_group(self, name, template: Task):
+        """Save fresh explicit-serial tasks; never approve or dispatch them."""
+        members = self.groups()[name]
+        if len(self.tasks()) + len(members) > 1000:
+            raise ValueError('Group expansion exceeds task limit')
+        if template.dependencies:
+            raise ValueError('Group copies require no dependencies; sequence copies in a workflow afterward')
+        created = [replace(template, task_id=uuid4().hex, name=(template.name+' · '+serial)[:150], serial=serial).validate() for serial in members]
+        with self.db:
+            for task in created:
+                due = stamp(datetime.fromisoformat(task.at)) if task.schedule == 'once' else next_due(task,utcnow(),inclusive=True)
+                self.db.execute('INSERT INTO tasks VALUES(?,?,?,?)',(task.task_id,json.dumps(asdict(task),allow_nan=False),task.fingerprint,due))
+        self._task_cache = None
+        return created
+
+    def workflows(self):
+        from .workflows import Workflow
+        result = []
+        for row in self.db.execute('SELECT definition FROM workflows ORDER BY id'):
+            fields = json.loads(row[0]); fields['task_ids'] = tuple(fields['task_ids']); fields['weekdays'] = tuple(fields.get('weekdays',(0,)))
+            result.append(Workflow(**fields).validate())
+        return result
+
+    def workflow(self, identity):
+        return next(item for item in self.workflows() if item.workflow_id==identity)
+
+    def save_workflow(self, workflow, *, now=None):
+        workflow.validate()
+        tasks = {task.task_id:task for task in self.tasks()}
+        prior = set()
+        for identity in workflow.task_ids:
+            task = tasks.get(identity)
+            if task is None:
+                raise ValueError('Workflow step task does not exist')
+            if task.schedule != 'manual':
+                raise ValueError('Workflow steps must use manual tasks; schedule the whole workflow instead')
+            if not set(task.dependencies) <= prior:
+                raise ValueError('Each workflow dependency must appear before its dependent task in this workflow')
+            prior.add(identity)
+        if workflow.workflow_id not in {item.workflow_id for item in self.workflows()} and len(self.workflows())>=100:
+            raise ValueError('At most 100 workflows are supported')
+        with self.db:
+            if self.db.execute("SELECT 1 FROM workflow_runs WHERE workflow_id=? AND state IN ('queued','running')",(workflow.workflow_id,)).fetchone():
+                raise ValueError('Cancel active workflow occurrences before editing')
+            due = stamp(datetime.fromisoformat(workflow.at)) if workflow.schedule=='once' else next_due(workflow,now or utcnow(),inclusive=True)
+            self.db.execute('INSERT INTO workflows VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET definition=excluded.definition,next_due=excluded.next_due',
+                            (workflow.workflow_id,json.dumps(asdict(workflow),allow_nan=False),due))
+
+    def delete_workflow(self, identity):
+        with self.db:
+            if self.db.execute("SELECT 1 FROM workflow_runs WHERE workflow_id=? AND state IN ('queued','running')",(identity,)).fetchone():
+                raise ValueError('Cancel active workflow occurrences before deleting')
+            self.db.execute('DELETE FROM workflow_steps WHERE workflow_run IN (SELECT id FROM workflow_runs WHERE workflow_id=?)',(identity,))
+            self.db.execute('DELETE FROM workflow_runs WHERE workflow_id=?',(identity,))
+            self.db.execute('DELETE FROM workflows WHERE id=?',(identity,))
+
+    def _enqueue_workflow(self, workflow, when, occurrence):
+        if not workflow.enabled:
+            raise ValueError('Enable the workflow before running')
+        if self.db.execute("SELECT count(*) FROM workflow_runs WHERE state IN ('queued','running')").fetchone()[0] >= 64:
+            raise ValueError('Workflow queue is full (64)')
+        identity = uuid4().hex
+        self.db.execute('INSERT OR IGNORE INTO workflow_runs(id,workflow_id,occurrence,state,scheduled) VALUES(?,?,?,?,?)', (identity,workflow.workflow_id,occurrence,'queued',when))
+        if self.db.execute('SELECT 1 FROM workflow_runs WHERE id=?',(identity,)).fetchone() is None:
+            return None
+        for position, task_id in enumerate(workflow.task_ids):
+            task = self.get(task_id)
+            self.db.execute('INSERT INTO workflow_steps VALUES(?,?,?,?,NULL)',(identity,position,task_id,task.fingerprint))
+        return identity
+
+    def enqueue_workflow(self, identity, *, now=None):
+        workflow = self.workflow(identity)
+        with self.db:
+            return self._enqueue_workflow(workflow,stamp(now or utcnow()),'manual:'+uuid4().hex)
+
+    def materialize_workflows(self, now):
+        when=stamp(now)
+        workflows={item.workflow_id:item for item in self.workflows()}
+        with self.db:
+            for row in self.db.execute('SELECT id,next_due FROM workflows WHERE next_due<=?',(when,)).fetchall():
+                workflow=workflows[row['id']]; due=row['next_due']
+                if not workflow.enabled:
+                    continue
+                if when-due <= 5 or workflow.missed=='run_once':
+                    self._enqueue_workflow(workflow, due, f'schedule:{due:.6f}')
+                else:
+                    self.db.execute('INSERT OR IGNORE INTO workflow_runs(id,workflow_id,occurrence,state,scheduled,finished,message) VALUES(?,?,?,?,?,?,?)',
+                                    (uuid4().hex,workflow.workflow_id,f'schedule:{due:.6f}','missed',due,when,'Missed workflow skipped'))
+                following=due+(int((when-due)//workflow.interval_seconds)+1)*workflow.interval_seconds if workflow.schedule=='interval' else next_due(workflow,now)
+                self.db.execute('UPDATE workflows SET next_due=? WHERE id=?',(following,workflow.workflow_id))
+
+    def workflow_history(self, identity=None, *, active=False):
+        query='SELECT * FROM workflow_runs'
+        clauses=[];arguments=[]
+        if identity is not None:
+            clauses.append('workflow_id=?');arguments.append(identity)
+        if active:
+            clauses.append("state IN ('queued','running')")
+        if clauses:query+=' WHERE '+' AND '.join(clauses)
+        return [dict(row) for row in self.db.execute(query+' ORDER BY scheduled DESC,rowid DESC LIMIT 200',arguments)]
+
+    def workflow_steps(self, run_id):
+        return [dict(row) for row in self.db.execute('SELECT s.*, e.state AS execution_state FROM workflow_steps s LEFT JOIN executions e ON e.id=s.execution_id WHERE s.workflow_run=? ORDER BY s.position',(run_id,))]
+
+    def workflow_step(self, execution_id):
+        row=self.db.execute('SELECT * FROM workflow_steps WHERE execution_id=?',(execution_id,)).fetchone()
+        return dict(row) if row else None
+
+    def finish_workflow(self, run_id, state, message=''):
+        if state not in ('running','completed','failed','cancelled','uncertain'):
+            raise ValueError('Invalid workflow state')
+        with self.db:
+            return bool(self.db.execute("UPDATE workflow_runs SET state=?,finished=?,message=? WHERE id=? AND state IN ('queued','running')",
+                    (state,None if state=='running' else stamp(utcnow()),message[:4000],run_id)).rowcount)
+
+    def export_workflows(self, project_root):
+        """Preserve sequence/schedule definitions, not occurrence state or approval."""
+        root=Path(project_root).resolve()
+        result=[]
+        for workflow in self.workflows():
+            roots=[Path(self.get(identity).project_root).resolve() for identity in workflow.task_ids]
+            if root not in roots: continue
+            if any(candidate!=root for candidate in roots):
+                raise ValueError('Workflow crosses project boundaries; cannot export an incomplete workflow')
+            result.append(asdict(workflow))
+        return result
+
+    def import_workflows(self, definitions, identity_map, *, _within_transaction=False):
+        from .workflows import Workflow
+        if not isinstance(definitions,list) or len(definitions)>100 or not isinstance(identity_map,dict):
+            raise ValueError('Invalid portable workflow definitions')
+        if len(self.workflows())+len(definitions)>100:
+            raise ValueError('Workflow import exceeds limit')
+        candidates=[];identities=set()
+        for definition in definitions:
+            if not isinstance(definition,dict) or not isinstance(definition.get('workflow_id'),str) or definition['workflow_id'] in identities:
+                raise ValueError('Invalid or duplicate portable workflow identity')
+            identities.add(definition['workflow_id'])
+            fields=dict(definition)
+            steps=fields.get('task_ids')
+            if not isinstance(steps,(tuple,list)) or any(identity not in identity_map for identity in steps):
+                raise ValueError('Portable workflow task is missing from imported definitions')
+            fields.update(workflow_id=uuid4().hex,task_ids=tuple(identity_map[identity] for identity in steps),enabled=False)
+            fields['weekdays']=tuple(fields.get('weekdays',(0,)))
+            candidate=Workflow(**fields).validate()
+            prior=set()
+            for identity in candidate.task_ids:
+                task=self.get(identity)
+                if task.schedule!='manual' or not set(task.dependencies)<=prior:
+                    raise ValueError('Invalid imported workflow step/dependency ordering')
+                prior.add(identity)
+            candidates.append(candidate)
+        with (nullcontext() if _within_transaction else self.db):
+            for workflow in candidates:
+                self.db.execute('INSERT INTO workflows VALUES(?,?,NULL)',(workflow.workflow_id,json.dumps(asdict(workflow),allow_nan=False)))
+        return candidates
+
+    def import_project_definitions(self, tasks, workflows, project_root):
+        """Import one project's task/sequence graph in a single transaction."""
+        try:
+            with self.db:
+                imported=self.import_definitions(tasks,project_root,_within_transaction=True)
+                mapping={original['task_id']:item.task_id for original,item in zip(tasks,imported)}
+                sequences=self.import_workflows(workflows,mapping,_within_transaction=True)
+                return imported,sequences
+        finally:
+            self._task_cache=None

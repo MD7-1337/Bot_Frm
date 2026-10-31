@@ -6,11 +6,11 @@ function startupFailure(message) {
     console.error(message);
 }
 if (typeof QWebChannel !== "function" || typeof qt === "undefined" || !qt.webChannelTransport) {
-    startupFailure("Local QWebChannel did not initialize. Run python -m app.main --health.");
+    startupFailure("Local QWebChannel did not initialize. Open Help → Dependency health for supported repair guidance.");
 } else new QWebChannel(qt.webChannelTransport, function (channel) {
     const bridge = channel.objects.editorBridge;
     function fail(message) {
-        const detail = "Monaco initialization failed: " + String(message) + ". Repair: python tools/fetch_monaco.py";
+        const detail = "Monaco initialization failed: " + String(message) + ". Open Help → Dependency health for supported repair guidance.";
         startupFailure(detail);
         bridge.reportError(detail);
     }
@@ -46,7 +46,8 @@ if (typeof QWebChannel !== "function" || typeof qt === "undefined" || !qt.webCha
             }
             function reportBreakpoints() {
                 window.studio.breakpoints = breakpointLines();
-                bridge.breakpointsChanged(JSON.stringify({key: window.studio.documentKey, lines: window.studio.breakpoints}));
+                bridge.breakpointsChanged(JSON.stringify({key: window.studio.documentKey,
+                    revision: window.studio.documentRevision, lines: window.studio.breakpoints}));
             }
             function setBreakpoints(lines, key) {
                 if (key !== undefined && key !== window.studio.documentKey) return;
@@ -191,8 +192,11 @@ if (typeof QWebChannel !== "function" || typeof qt === "undefined" || !qt.webCha
 
             function changed() {
                 setExecutionLine(null);
-                if (!changingDocument) reportBreakpoints();
-                bridge.documentChanged(editor.getValue());
+                if (!changingDocument) {
+                    reportBreakpoints();
+                    bridge.documentSnapshotChanged(window.studio.documentKey,
+                        window.studio.documentRevision, editor.getValue());
+                }
                 clearTimeout(debounce);
                 debounce = setTimeout(() => {
                     const version = editor.getModel().getVersionId();
@@ -208,15 +212,21 @@ if (typeof QWebChannel !== "function" || typeof qt === "undefined" || !qt.webCha
             }
             editor.onDidChangeModelContent(changed);
             window.studio = {
-                documentKey: "default", breakpoints: [], setBreakpoints,
+                documentKey: "default", documentRevision: 0, breakpoints: [], setBreakpoints,
                 editor, apiCatalog: catalog, imageReferences: references, executionLine: null, runStatus: "Idle",
-                setText: (source, key, lines) => {
+                setText: (source, key, lines, revision) => {
+                    if (revision !== undefined && revision < window.studio.documentRevision) return;
                     window.studio.documentKey = key === undefined ? window.studio.documentKey : key;
+                    if (revision !== undefined) window.studio.documentRevision = revision;
                     changingDocument = true;
                     try { editor.setValue(source); } finally { changingDocument = false; }
                     setBreakpoints(lines || []);
+                    changed();
                 }, getText: () => editor.getValue(),
-                insert: source => editor.executeEdits("automation-tool", [{range: editor.getSelection(), text: source, forceMoveMarkers: true}]),
+                insert: (source, key, revision) => {
+                    if (key !== undefined && (key !== window.studio.documentKey || revision !== window.studio.documentRevision)) return;
+                    editor.executeEdits("automation-tool", [{range: editor.getSelection(), text: source, forceMoveMarkers: true}]);
+                },
                 completionItems, signatureAt, hoverAt, refreshImages, setExecutionLine,
                 setRunStatus: status => { window.studio.runStatus = status; },
                 setAppearance: (theme, fontSize) => {

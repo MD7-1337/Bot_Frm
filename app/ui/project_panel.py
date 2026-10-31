@@ -4,9 +4,12 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QFileDialog, QHBoxLayout, QInputDialog, QLineEdit, QListWidget, QMessageBox, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox,
+                              QFileDialog, QFormLayout, QHBoxLayout, QInputDialog, QLineEdit,
+                              QListWidget, QMenu, QMessageBox, QSpinBox, QTableWidget,
+                              QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
 
-from app.projects.management import ProjectStore
+from app.projects.management import ProjectStore, validate_configuration
 from app.ui.components import button, label
 
 
@@ -45,6 +48,20 @@ class ProjectPanel(QWidget):
             self.import_tasks_button.setToolTip("Task persistence is unavailable. Project preservation remains available.")
         self.controls.append(self.import_tasks_button)
         layout.addWidget(self.import_tasks_button)
+        configuration = QHBoxLayout()
+        configuration.addWidget(button("Configure project…", self.configure))
+        configuration.addWidget(button("Open run preset…", self.open_run))
+        configuration.addWidget(button("Insert recognition preset…", self.insert_recognition))
+        safety = button("Recovery & safety…", lambda: None)
+        menu = QMenu(safety)
+        menu.addAction("Autosave recovery settings…", lambda: self._draft_action("show_settings"))
+        menu.addAction("Recover unsaved scripts…", lambda: self._draft_action("show_recovery"))
+        menu.addAction("Recover project metadata…", self.recover_metadata)
+        menu.addSeparator()
+        menu.addAction("Move project to trash…", self.trash)
+        safety.setMenu(menu)
+        configuration.addWidget(safety)
+        layout.addLayout(configuration)
         search = QHBoxLayout()
         self.query = QLineEdit()
         self.query.setPlaceholderText("Search project text")
@@ -148,6 +165,97 @@ class ProjectPanel(QWidget):
             store = self.store
             self._run(lambda: store.rename(name), lambda _: self._adopt(store))
 
+    def _draft_action(self, method):
+        controller = getattr(self.window, "draft_recovery", None)
+        if controller is None:
+            self.summary.setText("Recovery copies are unavailable. Inspect local storage diagnostics.")
+        else:
+            getattr(controller, method)()
+
+    def configure(self):
+        if not self._require() or self.busy:
+            return
+        dialog = ProjectConfigurationDialog(self.store.metadata, self, project_root=self.store.root)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            store = self.store
+            self._run(lambda: store.configure(*dialog.configuration), lambda _: self._adopt(store))
+
+    def open_run(self):
+        if not self._require():
+            return
+        runs = self.store.metadata.get("run_configurations", [])
+        if not runs:
+            self.summary.setText("Add a run configuration in Configure project. Opening a preset never starts Python; select a device and approve Run separately.")
+            return
+        name, accepted = QInputDialog.getItem(self, "Open script run preset", "Choose saved script (execution still requires approval)", [item.get("name", "") for item in runs], editable=False)
+        if accepted:
+            store = self.store
+            self._run(lambda: store.configured_script(name), lambda path: self.source_selected.emit(str(path), 1))
+
+    def insert_recognition(self):
+        if not self._require():
+            return
+        reference, accepted = QInputDialog.getText(self, "Insert recognition preset", "Existing image target inside this project", text="target.png")
+        if accepted:
+            store = self.store
+            self._run(lambda: store.recognition_code(reference), self.window.insert_code)
+
+    def recover_metadata(self):
+        root = QFileDialog.getExistingDirectory(self, "Project with damaged metadata")
+        if not root:
+            return
+        backup, _ = QFileDialog.getOpenFileName(self, "Choose project metadata backup", root, "JSON (*.json);;All files (*)")
+        if not backup:
+            return
+        answer = QMessageBox.question(self, "Recover project metadata", "Restore the selected validated metadata? Current project.json bytes will first be preserved beside it. Scripts, images and task approval are not changed.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel, QMessageBox.StandardButton.Cancel)
+        if answer == QMessageBox.StandardButton.Yes:
+            self._run(lambda: ProjectStore.recover_manifest(root, backup), self._adopt)
+
+    def trash(self):
+        if not self._require() or self.busy:
+            return
+        self.window.shell.documents.remember()
+        root = self.store.root
+        if any(document.project == root and document.source != document.saved for document in self.window.shell.documents.documents):
+            self.summary.setText("Save or close this project's unsaved tabs before moving it to trash.")
+            return
+        if any(run.exitcode is None for run in self.window.run_states) or self.window.pending_runs:
+            self.summary.setText("Stop automation workers and pending starts before moving a project.")
+            return
+        if self.window.jobs or self.window.recorder.state != "stopped":
+            self.summary.setText("Wait for background operations and stop recording before moving a project.")
+            return
+        if getattr(self.window, "task_store", None) is not None:
+            tasks = self.window.task_store.tasks()
+            if any(Path(task.project_root) == root and task.enabled for task in tasks):
+                self.summary.setText("Disable this project's scheduled tasks before moving it to trash.")
+                return
+        name = self.store.metadata["name"]
+        confirmation, accepted = QInputDialog.getText(self, "Move project to trash", f"This moves every saved file to a sibling .studio-trash folder. Nothing is permanently deleted. Type the exact project name to continue:\n{name}")
+        if not accepted:
+            return
+        store = self.store
+        def done(result):
+            destination, relocated = result
+            tabs = self.window.shell.documents
+            for document in tabs.documents:
+                if document.project == root:
+                    if document.path is not None:
+                        document.path = destination / document.path.relative_to(root)
+                    document.project = destination
+            if self.window.project_root == root:
+                if self.window.path is not None:
+                    self.window.path = destination / self.window.path.relative_to(root)
+                self.window._set_project(destination)
+                self.window._update_title()
+            self._adopt(relocated)
+            self.summary.setText(f"Project preserved in trash: {destination}. Move it back or open that directory to restore it.")
+        def relocate():
+            destination = store.trash(confirmation)
+            return destination, ProjectStore.open(destination)
+        self._run(relocate, done)
+
     def save(self):
         if self._require():
             store = self.store
@@ -169,6 +277,9 @@ class ProjectPanel(QWidget):
         # local scheduler. Preserve those until the user explicitly imports them.
         if definitions:
             metadata["task_definitions"] = definitions
+        workflows = task_store.export_workflows(store.root)
+        if workflows:
+            metadata["workflow_definitions"] = workflows
         return metadata
 
     def import_tasks(self):
@@ -178,6 +289,7 @@ class ProjectPanel(QWidget):
             self.summary.setText("Task persistence is unavailable. Project archives remain usable; inspect the Task Manager error.")
             return
         definitions = self.store.metadata.get("task_definitions", [])
+        workflows = self.store.metadata.get("workflow_definitions", [])
         if not definitions:
             self.summary.setText("This project contains no exported task definitions.")
             return
@@ -188,9 +300,9 @@ class ProjectPanel(QWidget):
         if accepted != QMessageBox.StandardButton.Yes:
             return
         try:
-            imported = self.window.task_store.import_definitions(definitions, self.store.root)
+            imported, imported_workflows = self.window.task_store.import_project_definitions(definitions, workflows, self.store.root)
             self.window.task_panel.refresh()
-            self.summary.setText(f"Imported {len(imported)} disabled task definition(s). Review them in Task Manager; execution requires new session approval.")
+            self.summary.setText(f"Imported {len(imported)} disabled task(s) and {len(imported_workflows)} workflow(s). Review them in Task Manager; execution requires new session approval.")
         except Exception as error:
             self.summary.setText(f"Task definitions could not be imported: {error}")
 
@@ -263,3 +375,106 @@ class ProjectPanel(QWidget):
             hit = self._hits[index]
             if Path(hit.path).suffix.casefold() == ".py":
                 self.source_selected.emit(str(self.store.root / hit.path), hit.line)
+
+
+class ProjectConfigurationDialog(QDialog):
+    """Edit real persisted presets; unknown execution features are not advertised."""
+    def __init__(self, metadata, parent=None, *, project_root=None):
+        super().__init__(parent)
+        self.setWindowTitle("Project recognition and run configurations")
+        self.resize(720, 520)
+        self.configuration = None
+        self.project_root = Path(project_root) if project_root else None
+        layout = QVBoxLayout(self)
+        layout.addWidget(label('Recognition presets generate editable Pattern Python. Run presets open a saved Python script; execution still needs an available device and native trust approval.'))
+        tabs = QTabWidget()
+        recognition = metadata.get("recognition", {})
+        page = QWidget()
+        form = QFormLayout(page)
+        self.threshold = QDoubleSpinBox()
+        self.threshold.setRange(0, 1)
+        self.threshold.setDecimals(3)
+        self.threshold.setSingleStep(.01)
+        try:
+            self.threshold.setValue(float(recognition.get("threshold", .85)))
+        except (ValueError, TypeError):
+            self.threshold.setValue(.85)
+        self.scales = QLineEdit(", ".join(str(v) for v in recognition.get("scales", [1.0])))
+        self.scales.setPlaceholderText("For example: 0.8, 1.0, 1.2")
+        self.preprocessing = QComboBox()
+        self.preprocessing.addItems(["none", "grayscale", "threshold", "edges"])
+        self.preprocessing.setCurrentText(recognition.get("preprocessing", "none"))
+        self.use_region = QCheckBox("Limit matching to a screen region")
+        region = recognition.get("region")
+        self.use_region.setChecked(region is not None)
+        self.region = []
+        form.addRow("Similarity threshold", self.threshold)
+        form.addRow("Image scales", self.scales)
+        form.addRow("Image preprocessing", self.preprocessing)
+        form.addRow(self.use_region)
+        for index, title in enumerate(("Region X", "Region Y", "Region width", "Region height")):
+            control = QSpinBox()
+            control.setRange(0 if index < 2 else 1, 65535)
+            control.setValue(region[index] if isinstance(region, list) and len(region) == 4 else (0 if index < 2 else 100))
+            control.setEnabled(self.use_region.isChecked())
+            self.use_region.toggled.connect(control.setEnabled)
+            self.region.append(control)
+            form.addRow(title, control)
+        tabs.addTab(page, "Recognition")
+        run_page = QWidget()
+        run_layout = QVBoxLayout(run_page)
+        self.runs = QTableWidget(0, 2)
+        self.runs.setHorizontalHeaderLabels(["Preset name", "Python script in project"])
+        self.runs.setAccessibleName("Project script run configurations")
+        for entry in metadata.get("run_configurations", []):
+            self._add_run(entry.get("name", ""), entry.get("script", ""))
+        run_layout.addWidget(self.runs)
+        actions = QHBoxLayout()
+        actions.addWidget(button("Add script preset…", self._choose_script))
+        actions.addWidget(button("Remove selected preset", lambda: self.runs.removeRow(self.runs.currentRow())))
+        run_layout.addLayout(actions)
+        tabs.addTab(run_page, "Run scripts")
+        layout.addWidget(tabs)
+        layout.addWidget(label("Presets remain project data. Open a run preset to edit its script; normal Run still requires explicit source and device approval."))
+        self.problem = label("", "notice")
+        layout.addWidget(self.problem)
+        actions = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+        actions.accepted.connect(self._save)
+        actions.rejected.connect(self.reject)
+        layout.addWidget(actions)
+
+    def _save(self):
+        try:
+            recognition = {"threshold": self.threshold.value(),
+                           "scales": [float(v.strip()) for v in self.scales.text().split(",")],
+                           "preprocessing": self.preprocessing.currentText()}
+            if self.use_region.isChecked():
+                recognition["region"] = [item.value() for item in self.region]
+            runs = [{"name": self.runs.item(row, 0).text() if self.runs.item(row, 0) else "",
+                     "script": self.runs.item(row, 1).text() if self.runs.item(row, 1) else ""}
+                    for row in range(self.runs.rowCount())]
+            self.configuration = validate_configuration(recognition, runs)
+        except (ValueError, TypeError, RecursionError) as error:
+            self.problem.setText(str(error))
+            return
+        self.accept()
+
+    def _add_run(self, name, script):
+        row = self.runs.rowCount()
+        self.runs.insertRow(row)
+        self.runs.setItem(row, 0, QTableWidgetItem(name))
+        self.runs.setItem(row, 1, QTableWidgetItem(script))
+        self.runs.resizeColumnsToContents()
+
+    def _choose_script(self):
+        if self.project_root is None:
+            self.problem.setText("Choose a managed project first.")
+            return
+        path, _ = QFileDialog.getOpenFileName(self, "Choose project Python script", str(self.project_root / "scripts"), "Python (*.py)")
+        if path:
+            try:
+                relative = Path(path).resolve().relative_to(self.project_root.resolve()).as_posix()
+            except (ValueError, OSError):
+                self.problem.setText("The Python script must be inside this project.")
+                return
+            self._add_run(Path(path).stem, relative)

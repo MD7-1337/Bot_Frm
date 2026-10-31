@@ -46,7 +46,7 @@ def test_schema_roundtrip_source_and_session_trust(store,tmp_path):
     assert submitted[0].source=='print(42)'
     engine.tick(NOW+timedelta(seconds=12))
     assert len(submitted)==1
-    assert store.db.execute('PRAGMA user_version').fetchone()[0]==1
+    assert store.db.execute('PRAGMA user_version').fetchone()[0]==2
     assert store.get(task.task_id)==task
 
 

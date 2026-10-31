@@ -1,5 +1,12 @@
 # Android Automation Studio
 
+Cross-platform release work is on `feat/cross-platform-alpha-release`. See
+[release validation and actual downloads](docs/RELEASE_VALIDATION.md),
+[Windows installation](docs/INSTALL_WINDOWS.md), [Ubuntu installation](docs/INSTALL_UBUNTU.md)
+and [real Android acceptance](docs/REAL_ANDROID_TESTING.md). Autosave recovery,
+project presets/trash, device groups, ordered workflows, imported-source debugging,
+persistent breakpoints and a connection wizard extend the preceding Alpha below.
+
 A Windows-targeted desktop IDE for Android visual automation. **This 0.2.0 Alpha development increment adds a real worker debugger, persistent task scheduling, project archives, safer recovery tools and verified editor startup. It is not yet a feature-complete Alpha candidate: remaining scope and Windows/real-phone acceptance are recorded in [the development report](docs/ALPHA_COMPLETION.md).**
 
 Start here: [installation and dependency health](docs/INSTALLATION.md), [local testing](docs/LOCAL_TESTING.md), [debugger](docs/DEBUGGING.md), [tasks](docs/TASKS.md), [projects](docs/PROJECTS.md), [recovery](docs/RECOVERY.md), and [Windows packaging](docs/PACKAGING.md). The [Phase 6 validation](docs/PHASE6_VALIDATION.md) is historical baseline evidence. Existing [simulation](docs/SIMULATION.md), [recognition](docs/RECOGNITION.md), [recorder](docs/RECORDER.md) and [device troubleshooting](docs/ALPHA_STABILIZATION.md) workflows remain available.
@@ -44,7 +51,7 @@ The original [product specification](docs/PRODUCT_SPECIFICATION.md) is retained 
 
 Real phones use the existing ADB/scrcpy backend. Simulation is explicitly opt-in and labeled **SIMULATED DEVICE — NOT CONNECTED TO ANDROID HARDWARE**. Missing dependencies/devices produce actionable errors.
 
-**Remaining scope:** general Python language service, UI-element APIs, physical-touch recording, multitouch, group scheduling/visual workflow editing, complete project autosave/recovery UX, conditional/library breakpoints, debugger expression evaluation and updater. Windows packaging recipes still require an actual Windows build, licensing review and platform acceptance. See the [precise continuation list](docs/ALPHA_COMPLETION.md).
+**Remaining scope:** general Python language service, UI-element APIs, physical-touch recording, multitouch, conditional/function breakpoints, debugger expression evaluation and updater. Platform build outcomes, hardware gates and licensing review are tracked in [release validation](docs/RELEASE_VALIDATION.md) and [known issues](docs/KNOWN_ISSUES.md).
 
 ## Development setup
 

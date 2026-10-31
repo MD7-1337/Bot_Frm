@@ -1,4 +1,12 @@
-# Windows developer distribution
+# Cross-platform developer distributions
+
+`.github/workflows/cross-platform-alpha.yml` independently tests/builds Windows
+Server 2022 x64 and Ubuntu 22.04 x86-64 candidates. It retains source JUnit,
+public failed-test annotations, source commit manifests, checksums and frozen
+smoke evidence. No stable release is published. Recipient instructions and actual
+status are in [INSTALL_WINDOWS.md](INSTALL_WINDOWS.md),
+[INSTALL_UBUNTU.md](INSTALL_UBUNTU.md) and [RELEASE_VALIDATION.md](RELEASE_VALIDATION.md).
+Both archives are tested after extraction/relocation outside the source checkout.
 
 The source version remains **0.2.0 Alpha**. The Windows build recipe and CI below
 are implemented. A Linux source test does not establish that a Windows executable
@@ -33,7 +41,8 @@ Successful outputs:
 
 - `dist/AndroidAutomationStudio/AndroidAutomationStudio.exe` and its runtime.
 - `dist/windows-frozen-smoke.json` with actual worker/GUI/frozen evidence.
-- `dist/AndroidAutomationStudio-0.2.0-windows-x64-portable.zip` and SHA256 sidecar.
+- `dist/AndroidAutomationStudio-windows-x64-portable.zip` and SHA256 sidecar.
+- `dist/windows-build-manifest.json` with source commit and verification result.
 - `build/release-notices/inventory.json` and preserved installed notices.
 
 An existing ZIP is never overwritten. Move a previous artifact before rebuilding.
@@ -51,21 +60,23 @@ the selected tools on physical hardware before claiming Android acceptance.
 
 ## Optional installer
 
-After the portable payload passes on Windows, compile `packaging/studio.iss`
-with a compatible Inno Setup 6 compiler (`ISCC packaging/studio.iss`). The script
+After the portable payload passes on Windows, pass `--installer` to the builder
+or compile `packaging/studio.iss` using installed Inno Setup 6. The script
 creates a per-user installation, Start Menu shortcut, optional desktop shortcut,
 uninstaller and stable application identity for upgrades. It never deletes user
-projects/settings and does not require elevation. Inno Setup is not installed or
-silently downloaded by this repository. An installer is **NOT BUILT** until an
+projects/settings and does not require elevation. The builder never silently
+installs a compiler; CI explicitly prepares its own machine. An installer is **NOT BUILT** until an
 actual compiler run and installer acceptance are recorded.
 
 ## CI and remaining Windows gates
 
-`.github/workflows/alpha-tests.yml` runs Linux/Windows source and GUI tests,
-measures actual 1/2/4 independent simulated worker runs, then builds the Windows
-portable only after source tests pass. It uploads the ZIP, checksum and smoke
-report. Workflow source is not evidence of a passing remote run. Check the actual
-Actions job and its artifacts after pushing the branch.
+The cross-platform workflow retains both source and frozen results. A failed
+source regression still allows a frozen package test for developer investigation;
+the final acceptance gate marks that job failed. Package upload requires its
+actual extracted smoke to pass. Accompanying evidence must be read before using
+an artifact; its existence alone does not establish complete Alpha acceptance.
+`tools/observe_actions.py` reads normal public Actions status pages where API
+access is unavailable. Private logs/artifact downloads still require GitHub login.
 
 Before a user release, test the extracted ZIP on a clean Windows 10/11 x64 machine
 without Python/Node, offline; verify high-DPI rendering, GPU drivers, project

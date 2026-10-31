@@ -29,6 +29,8 @@ class ScriptTabs(QWidget):
         window.editor.set_document_key(self.documents[0].key)
         self.current = 0
         self.switching = False
+        if hasattr(window.editor, "background_document_changed"):
+            window.editor.background_document_changed.connect(self._background_change)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
@@ -42,6 +44,16 @@ class ScriptTabs(QWidget):
         self.bar.tabCloseRequested.connect(self.close_document)
         layout.addWidget(self.bar)
         layout.addWidget(window.editor, stretch=1)
+
+    def _background_change(self, key, source):
+        # A final keystroke can reach WebChannel after native tab selection.
+        # Preserve it on its originating tab instead of losing or misrouting it.
+        for index, document in enumerate(self.documents):
+            if document.key == key and index != self.current:
+                document.source = source
+                self.bar.setTabText(index, (document.path.name if document.path else "Untitled.py")
+                                    + (" •" if source != document.saved else ""))
+                return
 
     def remember(self):
         if self.switching or not 0 <= self.current < len(self.documents):
@@ -70,6 +82,8 @@ class ScriptTabs(QWidget):
         self.current = index
         self.window.path, self.window.saved_source = document.path, document.saved
         self.window.editor.set_document_key(document.key)
+        if hasattr(self.window.editor, "set_document_path"):
+            self.window.editor.set_document_path(document.path, document.project)
         self.window.editor.set_text(document.source)
         self.window._set_project(document.project)
         self.window._update_title()
@@ -86,6 +100,8 @@ class ScriptTabs(QWidget):
             self.documents[0] = Document(path, source, source, project)
             self.window.path, self.window.saved_source = path, source
             self.window.editor.set_document_key(self.documents[0].key)
+            if hasattr(self.window.editor, "set_document_path"):
+                self.window.editor.set_document_path(path, project)
             self.window.editor.set_text(source)
             self.window._set_project(project)
             self.window._update_title()
@@ -104,6 +120,8 @@ class ScriptTabs(QWidget):
             self.documents[0] = Document(None, "", "", self.window.project_root)
             self.window.path = None
             self.window.editor.set_document_key(self.documents[0].key)
+            if hasattr(self.window.editor, "set_document_path"):
+                self.window.editor.set_document_path(None, self.window.project_root)
             self.window.editor.set_text("")
             self.window.saved_source = ""
             self.window._update_title()

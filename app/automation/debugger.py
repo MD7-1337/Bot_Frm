@@ -10,6 +10,7 @@ import bdb
 import hashlib
 import json
 from typing import Any
+from pathlib import Path
 
 from app.automation.api.errors import Cancelled
 
@@ -32,9 +33,12 @@ def command_bytes(command: str, payload: dict) -> bytes:
     if command not in COMMANDS:
         raise ValueError("Unsupported debug command")
     if command == "set_breakpoints":
-        if set(payload) != {"lines"}:
+        if set(payload) not in ({"lines"}, {"lines", "source_path"}):
             raise ValueError("set_breakpoints requires lines")
-        payload = {"lines": validate_breakpoints(payload["lines"])}
+        payload = dict(payload, lines=validate_breakpoints(payload["lines"]))
+        if "source_path" in payload and (not isinstance(payload["source_path"], str)
+                or not payload["source_path"] or len(payload["source_path"]) > 1024):
+            raise ValueError("Breakpoint source path is invalid")
     elif command == "inspect":
         if set(payload) != {"frame_index"} or type(payload["frame_index"]) is not int or not 0 <= payload["frame_index"] < 20:
             raise ValueError("Frame index must be between 0 and 19")
@@ -85,12 +89,18 @@ def variables(mapping, baseline=None) -> list[dict]:
 
 
 class WorkerDebugger(bdb.Bdb):
-    def __init__(self, source, script_id, lines, reader, cancelled, emit, execution, namespace):
+    def __init__(self, source, script_id, lines, reader, cancelled, emit, execution, namespace,
+                 sources=None, file_breakpoints=None):
         super().__init__()
         self.baseline = dict(namespace)
         self.source_hash = hashlib.sha256(source.encode("utf-8")).hexdigest()
         self.source = source
         self.script_id = script_id
+        self.sources = sources or {script_id: source}
+        for path in self.sources:
+            if not path.startswith('<') and not any(Path(path).resolve().is_relative_to(excluded)
+                    for excluded in execution._excluded_roots):
+                execution._traced_files[path] = True
         self.reader = reader
         self.cancelled = cancelled
         self.emit = emit
@@ -102,12 +112,19 @@ class WorkerDebugger(bdb.Bdb):
         self._pause_requested = False
         self.reset()
         self._breakpoints(lines)
+        for path, values in (file_breakpoints or {}).items():
+            if path != script_id:
+                self._breakpoints(values, path)
 
-    def _breakpoints(self, lines):
-        lines = validate_breakpoints(lines, self.source)
-        self.clear_all_breaks()
+    def _breakpoints(self, lines, path=None):
+        path = self.script_id if path is None else path
+        if path not in self.sources:
+            raise ValueError("Breakpoint file is not an approved debug source snapshot")
+        lines = validate_breakpoints(lines, self.sources[path])
+        if self.get_file_breaks(path):
+            self.clear_all_file_breaks(path)
         for line in lines:
-            error = self.set_break(self.script_id, line)
+            error = self.set_break(path, line)
             if error:
                 raise ValueError(error)
 
@@ -147,7 +164,7 @@ class WorkerDebugger(bdb.Bdb):
             command_bytes(command, data)
             try:
                 if command == "set_breakpoints":
-                    self._breakpoints(data["lines"])
+                    self._breakpoints(data["lines"], data.get("source_path"))
                 elif command == "pause":
                     if not self.is_stopped:
                         self._pause_requested = True
@@ -177,11 +194,16 @@ class WorkerDebugger(bdb.Bdb):
         if not 0 <= index < len(self.frames):
             raise ValueError("Frame is no longer available")
         frame = self.frames[index]
-        fields = dict(reason=reason, source_hash=self.source_hash,
+        def source_hash(path):
+            source = self.sources.get(path)
+            return hashlib.sha256(source.encode('utf-8')).hexdigest() if source is not None else None
+        fields = dict(reason=reason, source_hash=source_hash(frame.f_code.co_filename),
+                  main_source_hash=self.source_hash,
                   source_path=frame.f_code.co_filename, line=frame.f_lineno,
                   selected_frame=index,
                   stack=[{"index": i, "name": f.f_code.co_name[:120],
-                          "source_path": f.f_code.co_filename[:1024], "line": f.f_lineno}
+                          "source_path": f.f_code.co_filename[:1024], "line": f.f_lineno,
+                          "source_hash": source_hash(f.f_code.co_filename)}
                          for i, f in enumerate(self.frames)],
                   locals=variables(frame.f_locals, self.baseline), globals=variables(frame.f_globals, self.baseline),
                   exception=exception)

@@ -268,6 +268,7 @@ def _worker(
     script_id: str, run_id: str, writer: Connection, cancelled: Any, activation: Any,
     paused: Any, project_root: str, script_directory: str, mock_config: dict | None, simulation_config: dict | None, ocr_config: dict | None,
     debug_reader: Connection | None = None, breakpoints: list[int] | None = None,
+    debug_sources: dict | None = None, file_breakpoints: dict | None = None,
 ) -> None:
     emission_lock = threading.Lock()
     missing_cache = object()
@@ -323,12 +324,15 @@ def _worker(
             if debug_reader is not None:
                 from app.automation.debugger import WorkerDebugger
                 debugger = WorkerDebugger(source, script_id, breakpoints or [], debug_reader,
-                                          cancelled, emit, execution, namespace)
+                                          cancelled, emit, execution, namespace, debug_sources, file_breakpoints)
                 execution.debug_checkpoint = debugger.checkpoint
-                emit("debug_started", source_hash=debugger.source_hash, breakpoints=breakpoints or [])
+                emit("debug_started", source_hash=debugger.source_hash, breakpoints=breakpoints or [],
+                     source_file_count=len(debugger.sources))
             sys.settrace(debugger.trace if debugger is not None else execution.trace)
             try:
-                exec(compile(source, script_id, "exec"), namespace, namespace)
+                from app.automation.debug_sources import imported_sources
+                with imported_sources(debug_sources or {}, keep_cache=True) if debugger is not None else contextlib.nullcontext():
+                    exec(compile(source, script_id, "exec"), namespace, namespace)
                 execution.checkpoint()
             finally:
                 sys.settrace(None)
@@ -400,6 +404,7 @@ class RuntimeCoordinator:
         control: RunControl | None = None,
         project_root: str | Path | None = None, mock_config: dict | None = None, simulation_config: dict | None = None, ocr_config: dict | None = None,
         debug: bool = False, breakpoints: list[int] | None = None,
+        debug_sources: dict | None = None, file_breakpoints: dict | None = None,
     ) -> str:
         """Run trusted Python on one serial and return a unique run ID.
 
@@ -452,6 +457,20 @@ class RuntimeCoordinator:
         breakpoints = validate_breakpoints([] if breakpoints is None else breakpoints, source)
         if breakpoints and not debug:
             raise ValueError("Breakpoints require debug mode")
+        from app.automation.debug_sources import validate_sources
+        if not debug and (debug_sources is not None or file_breakpoints):
+            raise ValueError('Source snapshots and file breakpoints require debug mode')
+        debug_sources = validate_sources(debug_sources or {script_id: source}, root, script_id, source) if debug else None
+        if file_breakpoints is not None and (not isinstance(file_breakpoints, dict)
+                or len(file_breakpoints) > 200):
+            raise ValueError('Invalid file breakpoint map')
+        checked_breakpoints = {}
+        for path, values in (file_breakpoints or {}).items():
+            if path not in (debug_sources or {}):
+                raise ValueError('Breakpoint file is not in the approved source snapshots')
+            checked_breakpoints[path] = validate_breakpoints(values, debug_sources[path])
+        if sum(len(values) for values in checked_breakpoints.values()) + len(breakpoints) > 200:
+            raise ValueError('At most 200 breakpoints may be active in one run')
         compile(source, script_id, "exec")
         active = [run for run in self._runs.values() if run.process is not None and run.process.is_alive()]
         if any(run.info.serial == serial for run in active):
@@ -473,7 +492,8 @@ class RuntimeCoordinator:
         process = self._context.Process(
             target=_worker,
             args=(source, serial, backend, adb_executable, script_id, run_id, writer, cancelled, control.activation,
-                  control.paused, str(root), str(script_directory), mock_config, simulation_config, ocr_config, debug_reader, breakpoints),
+                  control.paused, str(root), str(script_directory), mock_config, simulation_config, ocr_config,
+                  debug_reader, breakpoints, debug_sources, checked_breakpoints),
             name=f"automation-{run_id[:8]}",
         )
         try:

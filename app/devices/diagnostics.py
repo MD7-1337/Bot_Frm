@@ -43,6 +43,7 @@ class DiagnosticReport:
     platform: str = field(default_factory=platform.platform)
     steps: list[DiagnosticStep] = field(default_factory=list)
     serials: list[str] = field(default_factory=list)
+    verified_serial: str | None = None
 
     def text(self, redact_serials=True):
         rows = ["Android Automation Studio — connection diagnostics", f"Host: {self.platform}",
@@ -54,7 +55,7 @@ class DiagnosticReport:
         value = "\n".join(rows)
         # Reports never run pairing or store its code. Also redact any generic
         # pairing-code text returned by a custom ADB binary/error wrapper.
-        value = re.sub(r"(?i)((?:pairing[ _-]?)?code\s*[:=]\s*)\S+", r"\1[REDACTED]", value)
+        value = re.sub(r"(?i)((?:pairing[ _-]?)?code\s*(?:[:=]\s*|is\s+|\s+))\S+", r"\1[REDACTED]", value)
         if redact_serials:
             for index, serial in enumerate(sorted(set(self.serials), key=len, reverse=True), 1):
                 value = value.replace(serial, f"[device-{index}]")
@@ -120,6 +121,7 @@ class ConnectionDiagnostics:
                             if state != "device":
                                 raise RuntimeError(f"Phone is {state}")
                             detail = f"{serial}: Android {self.adb.android_version(serial)}; get-state=device"
+                            report.verified_serial = serial
                         elif key == "screenshot":
                             payload = self.adb.screenshot(serial)
                             width, height = png_dimensions(payload)

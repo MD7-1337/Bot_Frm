@@ -88,6 +88,19 @@ def main(root):
     check_breakpoints([3])
     host.tabs.close_document(0)
     check_breakpoints([])
+    # Real queued renderer traffic must retain the source document identity.
+    path_a, path_b = root / "rapid-a.py", root / "rapid-b.py"
+    path_a.write_text("value = 'A'\n")
+    path_b.write_text("value = 'B'\n")
+    host.tabs.add(path_a, path_a.read_text(), root)
+    js("window.studio.editor.setValue(\"value = 'edited A'\\n\"); true")
+    host.tabs.add(path_b, path_b.read_text(), root)
+    for index in (0, 1) * 12:
+        host.tabs.bar.setCurrentIndex(index)
+    spin(application, lambda: host.editor.source == "value = 'B'\n"
+         and js("window.studio.getText()") == "value = 'B'\n")
+    assert host.tabs.documents[0].source == "value = 'edited A'\n"
+    assert host.tabs.documents[1].source == "value = 'B'\n"
     print(json.dumps({"tab_breakpoints": True}), flush=True)
     host.editor.shutdown()
     host.tabs.close()

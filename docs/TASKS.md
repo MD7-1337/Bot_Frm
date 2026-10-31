@@ -54,8 +54,9 @@ obsolete work and revokes approval.
 
 Dependencies are task IDs, visible in the task table. A task is eligible when each
 listed dependency's most recent execution completed successfully. Missing IDs,
-self-dependencies and cycles are rejected. This supports simple sequential flows;
-it does not offer a visual workflow editor or per-occurrence DAG correlation.
+self-dependencies and cycles are rejected. These task dependencies remain legacy recorded-success gates. For a sequence
+whose earlier success must belong to the same occurrence, use an ordered
+workflow below rather than independently scheduling dependent tasks.
 Higher priorities dispatch first, then earlier scheduled occurrences. Only one
 task per serial is dispatched at a time, including workers started outside Task
 Manager. The configured global worker cap is preserved. Four independent actual
@@ -85,7 +86,7 @@ multiple separate application instances or external ADB clients is outside scope
 
 ## Persistence and portable definitions
 
-`TaskStore` uses schema version 1, parameterized SQL, transactional writes and
+`TaskStore` uses schema version 2, parameterized SQL, transactional writes and
 validated state updates. Unsupported schema versions are rejected while retaining
 the file. Initial schema creation rolls back if a migration statement fails.
 History is durable; active queues are bounded at 256 and task definitions at 1000.
@@ -119,7 +120,67 @@ STUDIO_GUI_TESTS=1 QT_QPA_PLATFORM=offscreen \
   .venv/bin/python -m pytest -q tests/test_tasks_gui.py
 ```
 
-Device-group expansion, a visual workflow builder, execution-history retention
-configuration, cross-instance arbitration, calendar exceptions and per-occurrence
-workflow dependency correlation remain follow-up work. Physical Android and
-Windows runtime acceptance remain **NOT VERIFIED** until run on those platforms.
+General branching/parallel DAG editing, execution-history retention settings,
+cross-instance arbitration and calendar exceptions remain follow-up work.
+Physical Android and Windows runtime acceptance remain **NOT VERIFIED** until
+run on those platforms.
+
+
+## Device groups and ordered workflows
+
+Open **Task Manager → Groups and workflows…**. The Device groups tab saves a
+named list of **exact** serials or explicit `sim://` identities. Enter one member
+per line, load saved Device Manager group labels, or populate the list from task
+devices. A group can contain at most 32 unique members. Saving/deleting a group
+changes only its definition; it does not connect a phone, create a simulator,
+change existing tasks, approve source or send input.
+
+**Create group tasks…** snapshots the current editor, opens normal task settings,
+and atomically creates one separately identified task per saved member. Existing
+per-device source review, connection-generation approval, queues and worker caps
+apply to each copy. Editing group membership later does not silently retarget
+already-approved tasks. Review the generated tasks individually before execution.
+
+The Sequential workflows tab provides a native graphical **ordered list** editor:
+choose existing manual tasks, Add step, Move up/down and Remove step, name the
+workflow and set manual/once/interval/daily/weekly scheduling. Schedule the whole
+workflow instead of independently scheduling its member tasks. Steps can repeat;
+a dependency must occur earlier in that same workflow. Missing tasks and external
+or backwards dependencies are rejected. This is an ordered sequence editor, not
+a branching/parallel DAG canvas.
+
+Select **Approve steps…** to review the ordered targets/schedule, followed by each
+unique source/device in the normal native trust dialog. Approval is session-only
+and bound to the workflow definition plus all task fingerprints, which include
+execution settings as well as source and target. Changing a source, dependency,
+schedule or timeout invalidates approval. Device reset/disconnect and emergency
+stop revoke affected workflow approval and cancel obsolete occurrences.
+
+**Run workflow** enqueues a new durable occurrence and resumes scheduling; other
+already-approved due tasks can also dispatch. Scheduled triggers use the same
+timezone/DST/missed-run rules as tasks. Every occurrence has its own ordered step
+records and execution IDs. The next step is created only after the preceding step
+in **that occurrence** completed. An earlier workflow run's success cannot unlock
+a later run's step. Priorities and per-device leases still arbitrate active tasks.
+An explicitly safe whole-script retry remains attached to the same occurrence.
+A failed, cancelled or uncertain step stops the sequence; it never skips ahead.
+
+**Cancel workflow** cancels all queued/active occurrences and their owned child
+runs. Already-dispatched Android actions cannot be undone. Workflow history shows
+queued/running/completed/failed/cancelled/uncertain results. Restart marks unknown
+active outcomes uncertain, cancels pending occurrences and grants no approval.
+There are at most 100 saved workflows and 64 active occurrences.
+
+SQLite v1 databases receive a consistent `.v1-<unique-id>.bak` backup before the
+transactional v2 migration. Interrupted migration rolls back the schema and keeps
+the backup. Project metadata can preserve `workflow_definitions` alongside task
+definitions. `import_project_definitions(tasks, workflows, root)` imports the
+complete graph atomically with new identities and disabled, unapproved tasks and
+workflows. Saved groups are user-local labels; portable tasks retain exact target
+identities and still need review on the destination computer.
+
+`tests/test_workflows.py` covers real SQLite group expansion, repeated occurrence
+ordering, failures/cancellation/revocation, interval deduplication, migration
+backup/rollback, atomic graph import, atomic child links and actual independent
+simulated-device workers. `tests/test_workflows_gui.py` drives native group/ordered
+editor controls, source approvals, real workers and persistent history.

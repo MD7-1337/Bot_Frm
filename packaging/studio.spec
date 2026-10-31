@@ -24,6 +24,7 @@ pyz = PYZ(a.pure)
 exe = EXE(pyz, a.scripts, [], exclude_binaries=True,
           name="AndroidAutomationStudio", debug=False,
           bootloader_ignore_signals=False, strip=False, upx=False,
+          version=str(root / "build/windows-version-info.txt"),
           console=False)
 coll = COLLECT(exe, a.binaries, a.datas, strip=False, upx=False,
                name="AndroidAutomationStudio")

@@ -1,16 +1,17 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
-from PySide6.QtCore import QTimer, QUrl, Signal
+from PySide6.QtCore import QStandardPaths, QTimer, QUrl, Signal
 from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile, QWebEngineUrlRequestInterceptor, QWebEngineSettings
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import QVBoxLayout, QWidget, QLabel
 
 from app.editor.bridge import EditorBridge
-from app.editor.assets import MonacoAssetsError, validate_monaco
+from app.editor.assets import MonacoAssetsError, validate_monaco, repair_guidance
 from app.resources import resource_root
 
 EDITOR_ROOT = resource_root() / "editor_web"
@@ -44,6 +45,7 @@ class EditorPage(QWebEnginePage):
 class EditorWidget(QWidget):
     ready = Signal()
     document_changed = Signal(str)
+    background_document_changed = Signal(str, str)
     error = Signal(str)
     breakpoints_changed = Signal(object)
 
@@ -54,7 +56,15 @@ class EditorWidget(QWidget):
         self._initialization_failed = False
         self._breakpoints = ()
         self._document_key = "default"
+        self._source_revision = 0
+        self._source_revisions = {}
         self._document_breakpoints = {}
+        from app.editor.breakpoints import BreakpointStore
+        data_root = Path(os.environ.get('STUDIO_DATA_DIR') or QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppLocalDataLocation))
+        self.breakpoint_store = BreakpointStore(data_root / 'breakpoints')
+        self._document_path = None
+        self._breakpoint_project = None
+        self._persistent_pending = False
         self.execution_line = None
         self.run_status = "Idle"
         self.appearance = ("dark", 14)
@@ -80,13 +90,14 @@ class EditorWidget(QWidget):
         self.page.setWebChannel(self.channel)
         self.bridge.ready.connect(self._on_ready)
         self.bridge.changed.connect(self._on_change)
+        self.bridge.snapshot_changed.connect(self._on_snapshot_change)
         self.bridge.failed.connect(self._on_error)
         self.bridge.breakpoints_changed.connect(self._on_breakpoints)
         self.view.loadFinished.connect(self._loaded)
         self.view.renderProcessTerminated.connect(lambda *_: self._on_error("Editor renderer stopped. Restart the application; run --health if it repeats."))
         self.startup_timer = QTimer(self)
         self.startup_timer.setSingleShot(True)
-        self.startup_timer.timeout.connect(lambda: self._on_error("Monaco initialization timed out. Run python -m app.main --health, then repair local assets with python tools/fetch_monaco.py."))
+        self.startup_timer.timeout.connect(lambda: self._on_error("Monaco initialization timed out. Check Help → Dependency health. " + repair_guidance()))
         layout.addWidget(self.view, stretch=1)
         try:
             validate_monaco(EDITOR_ROOT)
@@ -117,6 +128,15 @@ class EditorWidget(QWidget):
         self.source = source
         self.document_changed.emit(source)
 
+    def _on_snapshot_change(self, snapshot):
+        key = snapshot['key']
+        if snapshot['revision'] != self._source_revisions.get(key):
+            return
+        if key == self._document_key:
+            self._on_change(snapshot['source'])
+        else:
+            self.background_document_changed.emit(key, snapshot['source'])
+
     def _on_error(self, message: str):
         self.startup_timer.stop()
         self._initialization_failed = True
@@ -129,8 +149,11 @@ class EditorWidget(QWidget):
         if isinstance(lines, dict):
             if lines["key"] != self._document_key:
                 return
+            if 'revision' in lines and lines['revision'] != self._source_revision:
+                return
             lines = lines["lines"]
         self._breakpoints = tuple(lines)
+        self._persist_breakpoints()
         self.breakpoints_changed.emit(list(lines))
 
     def get_breakpoints(self) -> tuple[int, ...]:
@@ -149,6 +172,25 @@ class EditorWidget(QWidget):
             self._document_key = key
             self._breakpoints = self._document_breakpoints.get(key, ())
 
+    def set_document_path(self, path, project):
+        """Select an optional saved-file persistence context before set_text."""
+        context = (str(Path(path).resolve()), str(Path(project).resolve())) if path is not None else (None, None)
+        if context != (self._document_path, self._breakpoint_project):
+            self._document_path, self._breakpoint_project = context
+            self._persistent_pending = path is not None
+
+    def persist_current_breakpoints(self):
+        """Host calls after Save/Save As, once the current file path is known."""
+        self._persistent_pending = False
+        self._persist_breakpoints()
+
+    def _persist_breakpoints(self):
+        if self._document_path is not None and not self._persistent_pending:
+            try:
+                self.breakpoint_store.save(self._document_path, self._breakpoint_project, self.source, self._breakpoints)
+            except (OSError, ValueError, RuntimeError) as error:
+                self.error.emit(f'Breakpoints could not be saved: {error}')
+
     def set_breakpoints(self, lines):
         lines = tuple(sorted(set(lines)))
         if len(lines) > 1000 or any(type(line) is not int or not 1 <= line <= 1_000_000 for line in lines):
@@ -161,12 +203,22 @@ class EditorWidget(QWidget):
         if len(source) > 1_000_000:
             raise ValueError("Document exceeds editor size limit")
         self.source = source
+        self._source_revision += 1
+        self._source_revisions[self._document_key] = self._source_revision
+        if self._persistent_pending:
+            self._persistent_pending = False
+            try:
+                lines = self.breakpoint_store.load(self._document_path, self._breakpoint_project, source)
+                if lines is not None:
+                    self._breakpoints = tuple(lines)
+            except (OSError, ValueError, RuntimeError) as error:
+                self.error.emit(f'Breakpoints could not be restored: {error}')
         if self.is_ready:
-            self.page.runJavaScript("window.studio.setText(" + json.dumps(source) + "," + json.dumps(self._document_key) + "," + json.dumps(self._breakpoints) + ")")
+            self.page.runJavaScript("window.studio.setText(" + json.dumps(source) + "," + json.dumps(self._document_key) + "," + json.dumps(self._breakpoints) + "," + str(self._source_revision) + ")")
 
     def insert(self, source: str):
         if self.is_ready:
-            self.page.runJavaScript("window.studio.insert(" + json.dumps(source) + ")")
+            self.page.runJavaScript("window.studio.insert(" + json.dumps(source) + "," + json.dumps(self._document_key) + "," + str(self._source_revision) + ")")
 
     def set_project_root(self, root: Path | str | None, script_dir: Path | str | None = None):
         """Set the host-selected image library; the page cannot change it."""

@@ -163,7 +163,7 @@ class DebuggerPanel(QWidget):
         event = self.sessions.get(self.selected_run(), {}).get("stop")
         if event:
             frame = item.data(Qt.ItemDataRole.UserRole)
-            self.source_requested.emit(frame["source_path"], frame["line"], event["source_hash"])
+            self.source_requested.emit(frame["source_path"], frame["line"], frame.get("source_hash") or "")
 
     def _render(self, *_):
         session = self.sessions.get(self.selected_run(), {})

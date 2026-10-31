@@ -55,35 +55,150 @@ def simulation_smoke(root: Path, *, count: int = 1, timeout: float = 30) -> dict
         manager.close()
 
 
-def gui_smoke(*, timeout_ms: int = 30000) -> dict:
+def gui_smoke(*, timeout_ms: int = 60000) -> dict:
+    """Exercise bundled GUI, debugger, recorder, scheduler and project storage.
+
+    Only built-in fixture code is approved. No project supplied by a user is
+    loaded or trusted. Run this explicitly through --release-smoke-report.
+    """
     from PySide6.QtCore import QTimer
-    from PySide6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication, QDialog, QDialogButtonBox, QMessageBox
+    from app.projects.management import ProjectStore
+    from app.tasks.store import Task, TaskStore
+    from app.host_metrics import resident_bytes
+    from datetime import timedelta
     from app.ui.window import StudioWindow
     application = QApplication.instance() or QApplication(["AndroidAutomationStudio release smoke"])
+    application.setQuitOnLastWindowClosed(False)
+    started = time.perf_counter()
+    deadline = time.monotonic() + timeout_ms / 1000
+    heartbeat = []
+    beat = QTimer()
+    beat.timeout.connect(lambda: heartbeat.append(time.perf_counter()))
+    beat.start(20)
     window = StudioWindow(discover=False)
-    result = {"passed": False, "monaco_ready": False, "window_visible": False}
-    finished = False
-
-    def finish(ok):
-        nonlocal finished
-        if finished:
-            return
-        finished = True
-        result.update(passed=bool(ok), monaco_ready=window.editor.is_ready, window_visible=window.isVisible())
-        window.close()
-        # The normal close lifecycle gets time to finish its background jobs;
-        # fail rather than leave a frozen smoke process indefinitely alive.
-        QTimer.singleShot(15000, application.quit)
-
-    timer = QTimer(window)
-    timer.setSingleShot(True)
-    timer.timeout.connect(lambda: finish(False))
-    timer.start(timeout_ms)
-    window.editor.ready.connect(lambda: QTimer.singleShot(300, lambda: finish(True)))
+    events = []
+    window.runtime.event.connect(events.append)
     window.show()
-    application.exec()
-    if not result["passed"]:
-        raise RuntimeError(f"Packaged workbench Monaco readiness failed: {result}")
+
+    def wait(predicate, name):
+        while time.monotonic() < deadline:
+            application.processEvents()
+            if predicate():
+                return
+            time.sleep(.005)
+        raise TimeoutError(f"Packaged workflow timed out: {name}; logs={window.logs.toPlainText()[-2000:]}")
+
+    def approve(operation, title):
+        acknowledged = []
+        timer = QTimer()
+        def accept_known_dialog():
+            dialog = application.activeModalWidget()
+            if dialog is not None and dialog.windowTitle() == title and not acknowledged:
+                if isinstance(dialog, QMessageBox):
+                    dialog.button(QMessageBox.StandardButton.Yes).click()
+                elif isinstance(dialog, QDialog):
+                    dialog.findChild(QDialogButtonBox).button(QDialogButtonBox.StandardButton.Ok).click()
+                acknowledged.append(True)
+            elif time.monotonic() >= deadline and dialog is not None:
+                dialog.reject()
+        timer.timeout.connect(accept_known_dialog)
+        timer.start(20)
+        try:
+            operation()
+        finally:
+            timer.stop()
+        if not acknowledged:
+            raise RuntimeError(f"Built-in smoke approval dialog not reached: {title}")
+
+    try:
+        wait(lambda: window.editor.is_ready and not window.jobs, "offline Monaco")
+        startup_ms = round(1000 * (time.perf_counter() - started), 1)
+        idle_rss = resident_bytes()
+        window.start_demo()
+        wait(lambda: window.active_simulation and window.preview.frame is not None
+             and not window._demo_pending, "explicit Demo Mode")
+        serial, project = window.active_simulation, window.project_root
+        managed = ProjectStore.open(project)
+        source = 'counter = 40\ncounter += 2\nhome()\nclick("start.png")\nprint(counter)\n'
+        script = project / "scripts" / "packaged-smoke.py"
+        window._atomic_write(script, source.encode())
+        window.open_script_path(script)
+        window.editor.set_breakpoints([2])
+        approve(window.debug_script, "Approve trusted Python execution")
+        wait(lambda: any(e.get("event") == "debug_stopped" and e.get("line") == 2 for e in events), "frozen debugger breakpoint")
+        stopped = next(e for e in reversed(events) if e.get("event") == "debug_stopped")
+        if not any(v["name"] == "counter" and v["value"] == "40" for v in stopped["locals"]):
+            raise RuntimeError("Frozen debugger did not inspect the real worker variable")
+        wait(lambda: window.debugger_panel.buttons["step_over"].isEnabled(), "debug controls")
+        window.debugger_panel.buttons["step_over"].click()
+        wait(lambda: any(e.get("event") == "debug_stopped" and e.get("line") == 3 for e in events), "frozen step over")
+        wait(lambda: window.debugger_panel.buttons["continue"].isEnabled(), "continue control")
+        window.debugger_panel.buttons["continue"].click()
+        wait(lambda: window.run_states and window.run_states[-1].exitcode is not None, "debugger cleanup")
+        if window.run_states[-1].state != "completed" or window.simulations.client(serial).state()["screen"] != "dashboard":
+            raise RuntimeError("Frozen debugged image click did not complete")
+        # Record acknowledged studio actions and schedule the generated Python.
+        window.start_recording()
+        window._key("HOME")
+        wait(lambda: not window.pending_controls and bool(window.recorder.actions), "recorded Home")
+        window._control(serial, lambda: window._transport(serial).tap(serial, 180, 512), recorded="tap(180, 512)")
+        wait(lambda: not window.pending_controls and len(window.recorder.actions) >= 2, "recorded tap")
+        window.stop_recording()
+        generated = window.recorder_panel.source()
+        compile(generated, "<recording>", "exec")
+        recording = project / "recordings"
+        recording.mkdir(exist_ok=True)
+        window._atomic_write(recording / "smoke.json", window.recorder.session_json().encode())
+        window._atomic_write(script, generated.encode())
+        task = Task(task_id="packaged-smoke", name="Built-in packaged smoke", source=generated,
+                    serial=serial, project_root=str(project), script_id=str(script), schedule="once",
+                    at=(datetime.now(timezone.utc) + timedelta(seconds=1)).isoformat(), missed="run_once")
+        window.task_store.save(task)
+        window.task_panel.refresh()
+        window.task_panel.tasks.selectRow(0)
+        approve(window.task_panel.authorize, "Approve exact task source and device")
+        window.scheduler.resume()
+        wait(lambda: window.task_store.history(task.task_id)
+             and window.task_store.history(task.task_id)[0]["state"] == "completed", "frozen scheduled recording")
+        metadata = managed.metadata
+        metadata["task_definitions"] = window.task_store.export_definitions(project)
+        managed.save(metadata)
+        archive = project.parent / "packaged project backup.zip"
+        managed.export(archive)
+        restored = ProjectStore.import_archive(archive, project.parent / "restored project")
+        if (restored.root / "scripts" / script.name).read_text() != generated:
+            raise RuntimeError("Packaged project restore lost the generated source")
+        if not (restored.root / "recordings" / "smoke.json").is_file():
+            raise RuntimeError("Packaged project restore lost the recorder session")
+        history_path = window.task_store.path
+        active_rss = resident_bytes()
+        result = {"passed": True, "monaco_ready": True, "window_visible": window.isVisible(),
+                  "checks": {key: True for key in ("demo", "recognition", "debug_breakpoint", "debug_variables",
+                    "debug_step", "recorder", "scheduled_worker", "project_export_restore")},
+                  "startup_ms": startup_ms, "idle_parent_rss_bytes": idle_rss,
+                  "active_parent_rss_bytes": active_rss, "heartbeat_samples": len(heartbeat),
+                  "max_heartbeat_gap_ms": round(max((b-a for a,b in zip(heartbeat, heartbeat[1:])), default=0)*1000, 1)}
+    finally:
+        beat.stop()
+        for document in window.shell.documents.documents:
+            document.saved = document.source
+        window.saved_source = window.editor.source
+        window.close()
+        cleanup_deadline = time.monotonic() + 15
+        while not window._shutdown_complete and time.monotonic() < cleanup_deadline:
+            application.processEvents()
+            time.sleep(.005)
+        if not window._shutdown_complete:
+            raise RuntimeError("Packaged workbench did not clean up owned resources")
+    with_store = TaskStore(history_path)
+    try:
+        if with_store.history("packaged-smoke")[0]["state"] != "completed":
+            raise RuntimeError("Packaged scheduler history did not survive reopening")
+        result["checks"]["persistent_history"] = True
+    finally:
+        with_store.close()
+    result["elapsed_seconds"] = round(time.perf_counter() - started, 3)
     return result
 
 
