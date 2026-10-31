@@ -173,11 +173,23 @@ Repository: <https://github.com/MD7-1337/Bot_Frm>. PR base:
 merge, force-push or preceding-branch modification is authorized or performed.
 The environment configuration was not edited or published.
 
-GitHub CLI authentication/API access returned `Forbidden`; a draft PR and remote
-Windows CI result cannot be claimed. The prepared PR description is
+The implementation commit is `be92614` (`feat: integrate isolated debugger, durable
+tasks and project preservation`). The subsequent delivery-report commit changes
+documentation only. The working tree is left committed; no source changes are
+pending.
+
+Automatic approval review rejected `git push -u origin feat/alpha-completion`,
+citing sensitive code publication and the earlier "do not publish" instruction.
+No push occurred and no remote branch or PR was created. Explicit user confirmation
+of this GitHub publication is now required before retrying; no alternate transport
+or workaround was attempted. The environment configuration was not published.
+
+Separately, GitHub CLI authentication/API access returned `Forbidden`; a draft PR
+and remote Windows CI result cannot be claimed. The prepared PR description is
 [PULL_REQUEST_ALPHA_COMPLETION.md](PULL_REQUEST_ALPHA_COMPLETION.md). Publishing
-outcome and final commit hashes are reported in the chat delivery message.
-Comparison URL:
+requires resolving approval first, then available GitHub API authentication to
+create the draft. The comparison URL below will be useful **after** the new branch
+is pushed; it does not currently identify an existing remote branch:
 <https://github.com/MD7-1337/Bot_Frm/compare/feat/phase6-recognition-simulator...feat/alpha-completion?expand=1>.
 
 Next engineering work: complete the autosave/project configuration and group/
