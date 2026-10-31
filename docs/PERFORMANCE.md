@@ -1,5 +1,10 @@
 # Measured performance and limits
 
+The cross-platform increment adds an actual frozen Ubuntu22 package workflow.
+Its short startup/RSS/heartbeat measurements and new 1/2/4 worker timings are in
+[RELEASE_VALIDATION.md](RELEASE_VALIDATION.md) and `validation/cross-platform-*`.
+Those observations are separate from the historical Alpha measurements below.
+
 `tools/benchmark_workers.py --output report.json` runs one, two and four actual
 spawned workers on independent stateful simulated devices. Each run creates real
 PNG templates, starts isolated Python, performs OpenCV matching, clicks the target,

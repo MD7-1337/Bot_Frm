@@ -1,0 +1,47 @@
+{
+  "recorded_utc": "2026-10-31T22:10:59.497663+00:00",
+  "source": {
+    "platform": "Linux-6.18.57-x86_64-with-glibc2.35",
+    "glibc": [
+      "glibc",
+      "2.35"
+    ],
+    "distribution": {
+      "NAME": "Ubuntu",
+      "ID": "ubuntu",
+      "PRETTY_NAME": "Ubuntu 22.04.5 LTS",
+      "VERSION_ID": "22.04",
+      "VERSION": "22.04.5 LTS (Jammy Jellyfish)",
+      "VERSION_CODENAME": "jammy",
+      "ID_LIKE": "debian",
+      "HOME_URL": "https://www.ubuntu.com/",
+      "SUPPORT_URL": "https://help.ubuntu.com/",
+      "BUG_REPORT_URL": "https://bugs.launchpad.net/ubuntu/",
+      "PRIVACY_POLICY_URL": "https://www.ubuntu.com/legal/terms-and-policies/privacy-policy",
+      "UBUNTU_CODENAME": "jammy"
+    },
+    "python": "3.12.15",
+    "application_version": "0.2.0",
+    "pyinstaller": "6.12.0",
+    "pyinstaller_hooks_contrib": "2026.9",
+    "source_commit": "a1720b5d8a3b7c39e9b49e5555c840c3a6a5222c",
+    "source_sha256": "c986c622cd5a0e5b6e088ec2f4ee427751b3a7ca52aaaf94188b47f4409e736a",
+    "frozen": true,
+    "android_hardware": "NOT VERIFIED",
+    "windows": "NOT VERIFIED"
+  },
+  "archive": "AndroidAutomationStudio-ubuntu-x86_64.tar.gz",
+  "bytes": 320654228,
+  "sha256": "e6cf489161b1edb8b2f35f36197852e83ab80e1bb6e3d3f4341db040d2f733c4",
+  "local_artifact": "dist/AndroidAutomationStudio-ubuntu-x86_64.tar.gz",
+  "builder_frozen_smoke": "passed after extraction and relocation with spaces",
+  "clean_ubuntu22_no_system_python_smoke": "passed",
+  "unprivileged_uid_65534_smoke": "passed",
+  "normal_desktop_sandbox_disabled_by_launcher": false,
+  "headless_flags": "isolated validation only",
+  "windows_artifact": null,
+  "windows_ci": "not run for new branch; push blocked by automatic approval review",
+  "physical_android": "NOT VERIFIED",
+  "two_physical_phones": "NOT VERIFIED",
+  "publication": "new branch push rejected; explicit approval requested and pending"
+}

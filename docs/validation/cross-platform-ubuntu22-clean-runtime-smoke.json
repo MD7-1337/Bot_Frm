@@ -1,0 +1,39 @@
+{
+  "passed": true,
+  "measured_at_utc": "2026-10-31T22:08:41.689254+00:00",
+  "frozen": true,
+  "platform": "Linux-6.18.57-x86_64-with-glibc2.35",
+  "python": "3.12.15",
+  "windows_runtime": "NOT VERIFIED",
+  "physical_android": "NOT VERIFIED",
+  "simulation": {
+    "passed": true,
+    "devices": 1,
+    "independent_pids": 1,
+    "elapsed_seconds": 0.5207,
+    "actions": "actual image matching and click changed each simulation state",
+    "android_hardware": "NOT VERIFIED"
+  },
+  "gui": {
+    "passed": true,
+    "monaco_ready": true,
+    "window_visible": true,
+    "checks": {
+      "demo": true,
+      "recognition": true,
+      "debug_breakpoint": true,
+      "debug_variables": true,
+      "debug_step": true,
+      "recorder": true,
+      "scheduled_worker": true,
+      "project_export_restore": true,
+      "persistent_history": true
+    },
+    "startup_ms": 1639.6,
+    "idle_parent_rss_bytes": 252522496,
+    "active_parent_rss_bytes": 272154624,
+    "heartbeat_samples": 149,
+    "max_heartbeat_gap_ms": 181.5,
+    "elapsed_seconds": 4.256
+  }
+}
