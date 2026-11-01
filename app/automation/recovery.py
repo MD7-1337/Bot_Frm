@@ -221,7 +221,9 @@ class RecoveryEngine:
         deadline = started + self.policy.budget
         for attempt in range(1, self.policy.max_attempts + 1):
             self._check()
-            remaining = deadline - time.monotonic()
+            # Subtraction of a rounded absolute deadline can exceed the original
+            # budget by an ulp on a coarse clock. Never grant more than policy.
+            remaining = min(self.policy.budget, deadline - time.monotonic())
             if remaining <= 0:
                 raise RecoveryBudgetExceeded("Read recovery time budget expired")
             current = dict(bound.arguments)

@@ -167,7 +167,9 @@ def main():
     def has_reference():
         for node in ast.parse(window.editor.source).body:
             if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name) and node.targets[0].id == "image_path":
-                return ast.literal_eval(node.value) == saved.as_posix()
+                # Absolute references use native separators on Windows. Verify
+                # the parsed Python literal resolves to the saved image.
+                return Path(ast.literal_eval(node.value)).resolve() == saved.resolve()
         return False
     spin(app, has_reference)
     ast.parse(window.editor.source)

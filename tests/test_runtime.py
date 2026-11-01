@@ -130,7 +130,11 @@ class WindowsClosedPipe:
     def recv_bytes(self, limit):
         try:
             return self.connection.recv_bytes(limit)
-        except EOFError:
+        except (EOFError, OSError) as closed:
+            # Native Windows already reports broken-pipe as OSError(109),
+            # whereas POSIX reports EOFError. Inject the requested error on both.
+            if isinstance(closed, OSError) and getattr(closed, "winerror", None) != 109:
+                raise
             error = OSError("The pipe has been ended")
             error.winerror = self.winerror
             raise error

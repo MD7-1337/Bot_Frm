@@ -9,6 +9,7 @@ from __future__ import annotations
 import bdb
 import hashlib
 import json
+import linecache
 from typing import Any
 from pathlib import Path
 
@@ -121,6 +122,12 @@ class WorkerDebugger(bdb.Bdb):
         if path not in self.sources:
             raise ValueError("Breakpoint file is not an approved debug source snapshot")
         lines = validate_breakpoints(lines, self.sources[path])
+        # bdb canonicalizes filenames (including lowercasing on Windows) before
+        # checking linecache. Cache the approved snapshot under that exact key;
+        # otherwise a dynamic breakpoint can read an edited on-disk file.
+        source = self.sources[path]
+        canonical = self.canonic(path)
+        linecache.cache[canonical] = (len(source), None, source.splitlines(keepends=True), canonical)
         if self.get_file_breaks(path):
             self.clear_all_file_breaks(path)
         for line in lines:

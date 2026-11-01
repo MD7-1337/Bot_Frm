@@ -227,7 +227,9 @@ def main(root, screenshots):
     spin(application, lambda: "tap(" in window.editor.source and "home()" in window.editor.source)
     source = window.editor.source
     window.actions["save"].trigger()
-    assert script.read_text() == source
+    # Compare the actual UTF-8 bytes: read_text() translates Windows CRLF,
+    # whereas Monaco legitimately returns its model's native line endings.
+    assert script.read_bytes().decode("utf-8") == source
     checks["recorded_python"] = True
 
     # Persist a once-only schedule via TaskDialog and approve its exact snapshot.

@@ -126,7 +126,9 @@ def test_budget_accounts_for_time_inside_the_read(tmp_path, monkeypatch):
     assert backend.reads == 1
 
 
-def test_wait_timeout_is_clamped_including_positional_arguments(tmp_path, monkeypatch):
+@pytest.mark.parametrize("clock", [0.0, 1024.0, 1_000_000_000.0])
+def test_wait_timeout_is_clamped_including_positional_arguments(tmp_path, monkeypatch, clock):
+    monkeypatch.setattr(time, "monotonic", lambda: clock)
     observed = []
     def waitImage(self, image, timeout=10, *, poll_interval=.2):
         observed.append(timeout)
