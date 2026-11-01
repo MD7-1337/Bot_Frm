@@ -44,7 +44,7 @@ def main():
     window.editor.set_project_root = invalid_library
     window.editor.source = 'print("saved source")\n'
     assert window.save_script() is False
-    assert script.read_text(encoding="utf-8") == window.editor.source
+    assert script.read_bytes().decode("utf-8") == window.editor.source
     assert "invalid image-library" in window.logs.toPlainText()
     assert window.project_root == project
     window.editor.set_project_root = original_set

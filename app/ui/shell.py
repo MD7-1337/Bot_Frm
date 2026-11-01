@@ -111,6 +111,11 @@ class WorkspaceShell(QWidget):
         self.splitters = {}
         self.project = ProjectExplorer(window)
         self.documents = ScriptTabs(window)
+        # Monaco reflows to its viewport. Its preferred width (and long tab
+        # names) must not force the splitter wider than the visible workspace,
+        # pushing the phone pane beyond the right edge on Windows.
+        self.documents.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.documents.setMinimumWidth(180)
         studio = QWidget()
         studio_layout = QVBoxLayout(studio)
         studio_layout.setContentsMargins(0, 0, 0, 0)

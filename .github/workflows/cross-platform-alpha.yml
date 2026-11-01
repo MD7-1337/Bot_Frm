@@ -21,15 +21,17 @@ jobs:
           - os: ubuntu-22.04
             platform: ubuntu-x86_64
             python: .venv/bin/python
+            qpa: offscreen
           - os: windows-2022
             platform: windows-x64
             python: .venv/Scripts/python.exe
+            qpa: windows
     runs-on: ${{ matrix.os }}
     timeout-minutes: 75
     env:
       STUDIO_GUI_TESTS: '1'
       STUDIO_SCREENSHOT_DIR: validation-screenshots
-      QT_QPA_PLATFORM: offscreen
+      QT_QPA_PLATFORM: ${{ matrix.qpa }}
       QTWEBENGINE_CHROMIUM_FLAGS: --disable-gpu
       STUDIO_LGPL_RUNTIME_DIR: build/lgpl-runtime
     steps:
@@ -47,6 +49,15 @@ jobs:
           python -m pip install uv==0.12.23
           uv sync --locked --extra test --python 3.12
           uv pip install --python ${{ matrix.python }} PyInstaller==6.12.0
+      - name: Verify native Windows GUI fonts
+        if: runner.os == 'Windows'
+        run: >-
+          ${{ matrix.python }} -c "from PySide6.QtWidgets import QApplication;
+          from PySide6.QtGui import QFontDatabase, QFontMetrics;
+          a=QApplication([]); families=QFontDatabase.families();
+          assert 'Segoe UI' in families, 'Native Windows font database unavailable';
+          assert QFontMetrics(a.font()).inFontUcs4(ord('A')), 'Default font cannot render Latin controls';
+          print('Native Windows GUI fonts verified')"
       - name: Restore verified editor and external Android tools
         run: |
           ${{ matrix.python }} tools/fetch_monaco.py

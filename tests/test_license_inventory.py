@@ -42,3 +42,39 @@ def test_payload_inventory_hashes_real_files_and_remains_blocked(tmp_path, monke
     assert result["files"] == [{"path": "native.dll", "bytes": 18,
                                 "sha256": hashlib.sha256(b"actual native file").hexdigest()}]
     assert "Application distribution license" in result["blockers"][0]
+
+
+@pytest.mark.parametrize("relative", [
+    "_internal/PySide6/Qt6Charts.dll",
+    "_internal/PySide6/Qt/Qt6DataVisualization.dll",
+    "_internal/PySide6/Qt/lib/libQt6Graphs.so.6",
+    "_internal/PySide6/QtCharts.abi3.so",
+    "_internal/PySide6/QtGraphsWidgets.pyd",
+    "_internal/PySide6/Qt/qml/QtGraphs/libgraphsplugin.so",
+    "_internal/PySide6/QT6CHARTS.DLL",
+])
+def test_payload_rejects_unused_gpl_qt_modules_after_retaining_evidence(tmp_path, monkeypatch, relative):
+    payload = tmp_path / "payload"
+    module = payload / relative
+    module.parent.mkdir(parents=True)
+    module.write_bytes(b"unintended module")
+    destination = tmp_path / "inventory.json"
+    monkeypatch.setattr(builder, "source_commit", lambda: "fixture")
+    with pytest.raises(ValueError, match="Unused GPL-only Qt modules"):
+        builder.write_payload_inventory(payload, destination)
+    report = json.loads(destination.read_text())
+    assert report["redistribution_approved"] is False
+    assert report["unexpected_gpl_qt_paths"] == [relative]
+    assert report["files"][0]["sha256"] == hashlib.sha256(b"unintended module").hexdigest()
+    assert "Unused GPL-only Qt" in report["blockers"][-1]
+
+
+def test_payload_guard_preserves_required_native_dependencies_and_reference_text(tmp_path, monkeypatch):
+    payload = tmp_path / "payload"
+    payload.mkdir()
+    for filename in ("libQt6Qml.so.6", "Qt6Quick.dll", "Qt6WebEngineCore.dll", "Qt6Charts-review.txt"):
+        (payload / filename).write_bytes(b"fixture")
+    monkeypatch.setattr(builder, "source_commit", lambda: "fixture")
+    result = builder.write_payload_inventory(payload, tmp_path / "inventory.json")
+    assert result["unexpected_gpl_qt_paths"] == []
+    assert len(result["files"]) == 4

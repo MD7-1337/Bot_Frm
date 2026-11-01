@@ -72,6 +72,30 @@ retain the exact source and build information for every deployed module, extract
 and reconcile the third-party notices, then validate replacement. No archive
 download, source correspondence or redistribution clearance is claimed here.
 
+### Unused GPL modules found in native payload
+
+The recovery Ubuntu payload inventory exposed QtCharts, QtDataVisualization and
+QtGraphs libraries and their QML plugins. Their Qt 6.8 documentation identifies
+commercial/GPLv3 licensing, with no LGPL alternative:
+[Charts](https://doc.qt.io/qt-6.8/qtcharts-index.html#licenses),
+[Data Visualization](https://doc.qt.io/qt-6.8/qtdatavisualization-index.html#licenses-and-attributions),
+[Graphs](https://doc.qt.io/qt-6.8/qtgraphs-index.html#licenses-and-attributions).
+This is an additional distribution blocker for those exact artifacts; the
+PySide6 wheel's general license metadata did not identify that payload problem.
+
+PyInstaller 6.12's `hook-PySide6.QtQml.py` calls `collect_qtqml_files()`, which
+recursively collects installed QML plugins. This application's source imports
+Widgets/WebEngineWidgets and no QML/Quick API. The packaging specs therefore
+exclude unused Python QML/Quick bindings to prevent their collection hooks from
+gathering every installed plugin. They do not remove required native Qt libraries:
+normal native dependency scanning remains enabled. Both rebuilt platform payloads
+must be checked for absence of those unused modules and pass their frozen
+workflow; earlier artifacts remain blocked and are not retroactively repaired.
+The post-freeze inventory guard records offending native library/binding paths
+and writes the full evidence report before rejecting a build that reintroduces
+these three unused module families. This narrow regression guard does not
+establish clearance for other dependencies or approve redistribution.
+
 `tools/build_windows.py` copies installed distribution license/notice files and
 records package versions under `build/release-notices/`. PyInstaller also collects
 the package metadata. That inventory must be compared with the **actual** bundled

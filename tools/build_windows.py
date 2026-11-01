@@ -70,13 +70,27 @@ def write_payload_inventory(payload: Path, destination: Path) -> dict:
             with path.open("rb") as stream:
                 digest = hashlib.file_digest(stream, "sha256").hexdigest()
             records.append({"path": path.relative_to(payload).as_posix(), "bytes": path.stat().st_size, "sha256": digest})
+    unexpected_qt = []
+    for record in records:
+        path = Path(record["path"])
+        name = path.name.lower()
+        native = name.endswith((".dll", ".pyd", ".dylib", ".so")) or ".so." in name
+        modules = ("charts", "datavisualization", "graphs")
+        if native and (any(name.startswith(prefix + module) for module in modules
+                           for prefix in ("qt", "qt6", "libqt6"))
+                       or any(part.lower() in {"qt" + module for module in modules} for part in path.parts)):
+            unexpected_qt.append(record["path"])
     report = {"schema": 1, "commit": source_commit(), "platform": platform.platform(),
               "redistribution_approved": False,
               "blockers": ["Application distribution license requires owner decision",
                            "Exact deployed Qt/Chromium source and notice correspondence requires review",
                            "Native dependency license mapping and replacement verification incomplete"],
-              "files": records}
+              "unexpected_gpl_qt_paths": unexpected_qt, "files": records}
+    if unexpected_qt:
+        report["blockers"].append("Unused GPL-only Qt Charts/DataVisualization/Graphs modules entered the payload")
     destination.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    if unexpected_qt:
+        raise ValueError("Unused GPL-only Qt modules in payload; review retained inventory: " + str(destination))
     return report
 
 

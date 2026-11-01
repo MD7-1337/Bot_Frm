@@ -281,7 +281,7 @@ def main(root, screenshots):
     click(window.project_panel, "Import / restore ZIP…")
     restored = root / "restored-workflow"
     spin(application, lambda: window.project_root == restored and not window.project_panel.busy)
-    assert (restored / "scripts" / "main.py").read_text() == source
+    assert (restored / "scripts" / "main.py").read_bytes().decode("utf-8") == source
     assert (restored / "images" / "start.png").read_bytes() == (managed / "images" / "start.png").read_bytes()
     assert (restored / "recordings" / "workflow.json").exists()
     checks["archive_restore"] = True

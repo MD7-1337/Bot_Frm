@@ -242,7 +242,7 @@ def main():
         script = directory / "scripts/journey.py"
         QFileDialog.getSaveFileName = lambda *a, **k: (str(script), "Python")
         toolbar(window, "save")
-        assert script.read_text(encoding="utf-8") == source
+        assert script.read_bytes().decode("utf-8") == source
         window._sync_controls()
         toolbar(window, "run")
         spin(app, lambda: any(e.get("command") == "tap" for e in events))
