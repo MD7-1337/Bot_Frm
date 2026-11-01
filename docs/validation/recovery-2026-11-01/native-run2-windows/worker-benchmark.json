@@ -1,0 +1,35 @@
+{
+  "measured_at_utc": "2026-11-01T11:16:25.974055+00:00",
+  "platform": "Windows-2022Server-10.0.20348-SP0",
+  "python": "3.12.10",
+  "logical_cpus": 4,
+  "scope": "short actual worker startup, OpenCV target click and cleanup; not sustained scalability",
+  "windows": "Windows runtime",
+  "physical_android": "NOT VERIFIED",
+  "runs": [
+    {
+      "passed": true,
+      "devices": 1,
+      "independent_pids": 1,
+      "elapsed_seconds": 0.3655,
+      "actions": "actual image matching and click changed each simulation state",
+      "android_hardware": "NOT VERIFIED"
+    },
+    {
+      "passed": true,
+      "devices": 2,
+      "independent_pids": 2,
+      "elapsed_seconds": 0.4257,
+      "actions": "actual image matching and click changed each simulation state",
+      "android_hardware": "NOT VERIFIED"
+    },
+    {
+      "passed": true,
+      "devices": 4,
+      "independent_pids": 4,
+      "elapsed_seconds": 0.6581,
+      "actions": "actual image matching and click changed each simulation state",
+      "android_hardware": "NOT VERIFIED"
+    }
+  ]
+}

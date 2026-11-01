@@ -1,0 +1,1 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites><testsuite name="pytest" errors="0" failures="0" skipped="0" tests="1" time="13.750" timestamp="2026-11-01T11:54:53.257533+00:00" hostname="runnervmnjgfq"><testcase classname="tests.test_alpha_completion_gui" name="test_managed_project_debug_scheduled_simulation_and_restart" time="13.624" /></testsuite></testsuites>

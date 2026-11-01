@@ -1,74 +1,52 @@
 # Alpha recovery validation — 2026-11-01
 
-Classification: **Alpha development**. Public binary redistribution is **BLOCKED**.
-The repository is being recovered on `recovery/continue-alpha-2026-11-01` from
-`d6e85dc9624ccd4ed238c51698c41dc583b6a6b1`. Main and previous feature branches are
-preserved. Draft PR: https://github.com/MD7-1337/Bot_Frm/pull/4 (unmerged).
+**Both native source suites and actual Windows/Ubuntu package smoke tests pass.
+Application downloads remain BLOCKED by unfinished redistribution requirements.**
+Classification: **Alpha development**, not Beta or Stable.
 
-Build-specific identity is in `BUILD_INFO.json`, `PAYLOAD_INVENTORY.json` and
-archive SHA-256 sidecars. This document records completed runs available before
-this source snapshot; it does not pre-approve a later build.
+Verified source/build commit: `1e14932ea47bf174096fd62eda7a29e805c681c7` on
+`recovery/continue-alpha-2026-11-01`. The subsequent evidence commit changes
+only documentation. [Draft PR #4](https://github.com/MD7-1337/Bot_Frm/pull/4)
+is unmerged; main and previous feature branches remain untouched.
 
-## Verified native build milestone
+Actual run: https://github.com/MD7-1337/Bot_Frm/actions/runs/41303947753
 
-Run https://github.com/MD7-1337/Bot_Frm/actions/runs/41300939150 built source
-`bf0f7b10e9691a9a093f5f1c91d32be99695f35d` on Windows Server 2022 x64 and Ubuntu
-22.04 x86-64. Actual results:
-
-| Check | Result |
+| Validation | Actual result |
 | --- | --- |
-| Windows source | 961 passed, 2 failed, 3 skipped, 111.781 seconds |
-| Ubuntu source | 963 passed, 0 failed, 3 skipped, 74.913 seconds |
-| Local Ubuntu 24.04 source | 963 passed, 0 failed, 3 skipped, 99.01 seconds |
-| Real Windows EXE, extracted ZIP relocation with spaces | PASS — frozen workflow |
-| Windows installer | PASS — install, Start menu target, same-version reinstall, installed workflow, uninstall, external project preservation |
-| Ubuntu extracted/relocated executable | PASS — frozen workflow |
-| Same Ubuntu archive, clean 22.04 container, no Python, UID 65534 | PASS — frozen workflow |
-| Public artifact upload | BLOCKED by dependency/application licensing gate |
-| Physical one-phone/two-phone testing | NOT VERIFIED |
+| Windows Server 2022 x64 source | 975 passed, 0 failed, 3 skipped; 30 GUI cases; 125.589 s |
+| Ubuntu 22.04 x86-64 source | 975 passed, 0 failed, 3 skipped; 30 GUI cases; 100.382 s |
+| Eight independent Windows regression groups plus managed repeat | 25 passed, 0 failed, 0 skipped |
+| Real Windows EXE and relocated ZIP with spaces | PASS — frozen workflow |
+| Installed EXE using native Windows Qt platform | PASS — frozen workflow, qt_platform=windows |
+| Unsigned per-user installer | PASS — install, shortcut target, same-version reinstall, uninstall and external project preservation |
+| Ubuntu extracted/relocated portable | PASS — frozen workflow |
+| Same Ubuntu archive, clean Ubuntu 22.04 without system Python, UID 65534 | PASS — frozen workflow |
+| Excluded unused GPL Qt modules | Zero flagged paths in both actual inventories |
+| Application artifact download | BLOCKED — validation artifacts contain evidence only |
+| Physical one/two-phone testing | NOT VERIFIED |
 
-Each full suite includes 30 opt-in GUI cases. The three skips require optional
-Tesseract executable/model availability. No failed case was skipped. The two
-remaining Windows failures concern exact restored CRLF text comparison and
-preview-pane geometry in the Windows offscreen fontless environment. Follow-up
-changes correct source comparisons, bound the editor pane, and supply Windows system fonts to Qt offscreen for deterministic large/compact
-source journeys, with a Segoe UI/glyph preflight. Installed executable smoke
-separately uses and verifies the native Windows Qt platform. Native validation of that
-follow-up must be checked separately before acceptance.
+The three skips per platform require optional Tesseract availability. No failed
+case was skipped, removed, renamed or xfailed. Both final jobs fail solely at the
+intentional binary redistribution gate; source/build/package acceptance passed.
 
-Frozen smoke exercises actual Monaco, spawned simulation workers, OpenCV image
-matching, breakpoints/variables/stepping, recorder, scheduled execution, durable
-history and project export/restore. The Windows installer is unsigned. Reinstall
-over the same Alpha version is verified; a different-version upgrade and normal
-interactive desktop/DPI/multiple-monitor testing remain unverified.
+Read the [complete recovery report](RECOVERY_REPORT_2026-11-01.md) for every
+Windows root cause, changed file, exact test evidence, actual archive checksums,
+installer limits, license findings and download status. The [package manifest](validation/recovery-2026-11-01/final-package-manifest.json)
+and `native-final-*` evidence directories identify actual deployed payloads.
 
-## Redistribution remains blocked
+No application LICENSE was invented. Exact Qt/Chromium correspondence/notices,
+complete native dependency mapping and LGPL replacement validation remain open.
+See [third-party review](THIRD_PARTY_NOTICES.md) and
+[continuation instructions](RECOVERY_CONTINUATION.md). Blocked binaries were
+built in ephemeral CI workspaces and were not uploaded as persistent downloads.
 
-Actual payload inventories revealed unused Qt Charts/Data Visualization/Graphs
-libraries collected via QML hooks. These GPL-only modules do not satisfy the
-intended LGPL route. The follow-up specs exclude unused Python QML/Quick bindings
-while preserving native dependency scanning; native frozen smoke and inventories
-must confirm their absence. A local pruned Linux developer build passed frozen
-smoke; it is not a cleared distribution package.
+Normal Windows 10/11 desktop/DPI/standard-user acceptance, a different-version
+installer upgrade and physical phone behavior remain unverified. Use
+[Windows setup](INSTALL_WINDOWS.md), [Ubuntu setup](INSTALL_UBUNTU.md),
+[real Android testing](REAL_ANDROID_TESTING.md) and
+[hardware acceptance](HARDWARE_ACCEPTANCE.md). The restricted school PC is not
+required. ADB/scrcpy/Tesseract are external selections; no USB permissions are
+changed automatically.
 
-The FFmpeg/PyAV source build and exact ABI/decoder probes now pass on both native
-platforms. Corresponding sources, configure options, generated VERSION metadata,
-build script and installed-wheel correspondence are retained. This is separate
-from completing Qt/Chromium notices, native dependency mapping and actual LGPL
-replacement validation. The owner has not yet selected an application LICENSE.
-See [dependency review](THIRD_PARTY_NOTICES.md).
-
-GitHub Actions uploads source XML, frozen/installer smoke JSON, SHA-256 sidecars,
-payload inventories and dependency evidence under `validation-<platform>-<SHA>`.
-These artifacts contain **validation evidence only**, not the application EXE or
-archive. Do not represent them as a Windows download. No GitHub Release is created.
-Approved future application downloads require both source and redistribution gates.
-
-Use [Windows setup](INSTALL_WINDOWS.md), [Ubuntu setup](INSTALL_UBUNTU.md),
-[real Android acceptance](REAL_ANDROID_TESTING.md) and
-[hardware checklist](HARDWARE_ACCEPTANCE.md). ADB/scrcpy/Tesseract remain explicitly
-selected external tools; no USB permissions are changed automatically. The school
-computer is not required. Physical phone results must remain NOT VERIFIED.
-
-Historical evidence is preserved in
-[the previous validation report](RELEASE_VALIDATION_2026-10-31.md).
+Historical evidence is preserved in the
+[previous validation report](RELEASE_VALIDATION_2026-10-31.md).

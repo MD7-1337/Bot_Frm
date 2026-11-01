@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="0.471" timestamp="2026-11-01T11:05:13.825223+00:00" hostname="runnervmnjgfq"><testcase classname="tests.test_runtime" name="test_other_windows_pipe_errors_still_fail_closed" time="0.249"><failure message="AssertionError: assert 'completed' == 'failed'&#10;  &#10;  - failed&#10;  + completed">def test_other_windows_pipe_errors_still_fail_closed():
+        with RuntimeCoordinator() as runtime:
+            run_id = runtime.start("pass", "fixture-one", trusted=True)
+            run = runtime._runs[run_id]
+            run.reader = WindowsClosedPipe(run.reader, winerror=5)
+            events = collect_finished(runtime, [run_id])
+&gt;           assert runtime.snapshot()[0].state == "failed"
+E           AssertionError: assert 'completed' == 'failed'
+E             
+E             - failed
+E             + completed
+
+tests\test_runtime.py:178: AssertionError</failure></testcase></testsuite></testsuites>

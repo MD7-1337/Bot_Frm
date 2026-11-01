@@ -1,5 +1,9 @@
 # Ubuntu portable application
 
+**Current application downloads are blocked pending licensing clearance.** Native
+Ubuntu 22.04 builds and clean no-Python frozen smoke have passed; `validation-*`
+artifacts contain evidence only. See [current results](RELEASE_VALIDATION.md).
+
 The Linux release build targets **Ubuntu 22.04 x86-64 (glibc 2.35)**. Its archive
 contains Python 3.12, Qt/PySide6/WebEngine, Monaco, OpenCV/NumPy, PyAV, SQLite and
 timezone data. It does not use a source checkout, virtual environment, Node.js,
