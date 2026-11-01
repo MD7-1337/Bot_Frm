@@ -90,6 +90,11 @@ jobs:
             & ${{ matrix.python }} tools/ci_test_report.py "windows-regression-$i.xml"
             if ($testExit -ne 0 -or $LASTEXITCODE -ne 0) { $failed = $true }
           }
+          # Repeat the formerly intermittent managed-project journey separately.
+          & ${{ matrix.python }} -m pytest -q $cases[0] "--junitxml=windows-regression-managed-repeat.xml"
+          $testExit = $LASTEXITCODE
+          & ${{ matrix.python }} tools/ci_test_report.py "windows-regression-managed-repeat.xml"
+          if ($testExit -ne 0 -or $LASTEXITCODE -ne 0) { $failed = $true }
           if ($failed) { exit 1 }
       - name: Full source and actual GUI regression
         id: source
