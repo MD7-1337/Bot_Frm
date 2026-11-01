@@ -8,7 +8,7 @@ root = Path(SPECPATH).parent
 # Required native QtQuick/Qml dependencies remain subject to normal DLL scanning.
 unused_qml_bindings = ["PySide6." + name for name in (
     "QtQml", "QtQuick", "QtQuickWidgets", "QtWebEngineQuick",
-    "QtQuick3D", "QtCharts", "QtDataVisualization", "QtGraphs", "QtGraphsWidgets")]
+    "QtQuick3D", "QtCharts", "QtDataVisualization", "QtGraphs", "QtGraphsWidgets", "QtVirtualKeyboard")]
 datas = [(str(root / "editor_web"), "editor_web"),
          (str(root / "build/release-notices"), "THIRD_PARTY_NOTICES")]
 datas += collect_data_files("app") + collect_data_files("tzdata")
@@ -17,6 +17,7 @@ for dependency in ("android-automation-studio", "PySide6", "PySide6-Essentials",
     datas += copy_metadata(dependency)
 
 a = Analysis([str(root / "packaging/windows_entry.py")], pathex=[str(root)], datas=datas,
+             hookspath=[str(root / "packaging/hooks")],
              hiddenimports=collect_submodules("app") + collect_submodules("tzdata"),
              excludes=["PyQt5", "PyQt6", "PySide2", "tkinter", *unused_qml_bindings], noarchive=False)
 pyz = PYZ(a.pure)

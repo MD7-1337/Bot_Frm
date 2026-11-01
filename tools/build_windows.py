@@ -75,9 +75,10 @@ def write_payload_inventory(payload: Path, destination: Path) -> dict:
         path = Path(record["path"])
         name = path.name.lower()
         native = name.endswith((".dll", ".pyd", ".dylib", ".so")) or ".so." in name
-        modules = ("charts", "datavisualization", "graphs")
+        modules = ("charts", "datavisualization", "graphs", "virtualkeyboard")
         if native and (any(name.startswith(prefix + module) for module in modules
                            for prefix in ("qt", "qt6", "libqt6"))
+                       or name.startswith("libqtvirtualkeyboardplugin.")
                        or any(part.lower() in {"qt" + module for module in modules} for part in path.parts)):
             unexpected_qt.append(record["path"])
     report = {"schema": 1, "commit": source_commit(), "platform": platform.platform(),
@@ -87,7 +88,7 @@ def write_payload_inventory(payload: Path, destination: Path) -> dict:
                            "Native dependency license mapping and replacement verification incomplete"],
               "unexpected_gpl_qt_paths": unexpected_qt, "files": records}
     if unexpected_qt:
-        report["blockers"].append("Unused GPL-only Qt Charts/DataVisualization/Graphs modules entered the payload")
+        report["blockers"].append("Unused GPL-only Qt Charts/DataVisualization/Graphs/VirtualKeyboard modules entered the payload")
     destination.write_text(json.dumps(report, indent=2), encoding="utf-8")
     if unexpected_qt:
         raise ValueError("Unused GPL-only Qt modules in payload; review retained inventory: " + str(destination))

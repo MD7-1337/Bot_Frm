@@ -93,8 +93,22 @@ must be checked for absence of those unused modules and pass their frozen
 workflow; earlier artifacts remain blocked and are not retroactively repaired.
 The post-freeze inventory guard records offending native library/binding paths
 and writes the full evidence report before rejecting a build that reintroduces
-these three unused module families. This narrow regression guard does not
+these unused module families. This narrow regression guard does not
 establish clearance for other dependencies or approve redistribution.
+
+A second inspection found `libQt6VirtualKeyboard.so.6`, reached through QtGui's
+automatic collection of `platforminputcontexts/libqtvirtualkeyboardplugin.so`.
+[Qt Virtual Keyboard](https://doc.qt.io/qt-6.8/qtvirtualkeyboard-index.html#licenses-and-attributions)
+also has commercial/GPLv3 licensing. A local QtGui hook now uses PyInstaller's
+normal dependency collector and filters only that optional virtual-keyboard
+plugin before native dependency scanning. The application uses ordinary host
+keyboard input; ibus/fcitx and platform plugins are retained. Its unused Python
+binding is excluded and the post-freeze guard also rejects VirtualKeyboard
+libraries/bindings/plugins. No required native libraries are removed after
+analysis. Other native Qt module names in the pruned Linux inventory were
+compared with the [Qt 6.8 GPL-only module list](https://doc.qt.io/qt-6.8/licensing.html):
+no further listed module family was identified. This name-level comparison does
+not replace third-party notices, linkage review or source correspondence.
 
 `tools/build_windows.py` copies installed distribution license/notice files and
 records package versions under `build/release-notices/`. PyInstaller also collects

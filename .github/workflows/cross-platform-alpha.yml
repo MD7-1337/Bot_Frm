@@ -96,6 +96,16 @@ jobs:
         continue-on-error: true
         if: always()
         run: ${{ matrix.python }} tools/ci_test_report.py source-tests.xml
+      - name: Upload source evidence before native compilation
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-tests-${{ matrix.platform }}-${{ github.sha }}
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            source-tests.xml
+            windows-regression-*.xml
       - name: Measure actual independent simulation workers
         run: ${{ matrix.python }} tools/benchmark_workers.py --output worker-benchmark.json
       - name: Initialize native Windows compiler

@@ -2,6 +2,9 @@
 import hashlib
 import importlib.util
 import json
+import runpy
+import sys
+import types
 from pathlib import Path
 import zipfile
 
@@ -52,6 +55,9 @@ def test_payload_inventory_hashes_real_files_and_remains_blocked(tmp_path, monke
     "_internal/PySide6/QtGraphsWidgets.pyd",
     "_internal/PySide6/Qt/qml/QtGraphs/libgraphsplugin.so",
     "_internal/PySide6/QT6CHARTS.DLL",
+    "_internal/PySide6/Qt/lib/libQt6VirtualKeyboard.so.6",
+    "_internal/PySide6/QtVirtualKeyboard.pyd",
+    "_internal/PySide6/Qt/plugins/platforminputcontexts/libqtvirtualkeyboardplugin.so",
 ])
 def test_payload_rejects_unused_gpl_qt_modules_after_retaining_evidence(tmp_path, monkeypatch, relative):
     payload = tmp_path / "payload"
@@ -78,3 +84,23 @@ def test_payload_guard_preserves_required_native_dependencies_and_reference_text
     result = builder.write_payload_inventory(payload, tmp_path / "inventory.json")
     assert result["unexpected_gpl_qt_paths"] == []
     assert len(result["files"]) == 4
+
+
+def test_qtgui_hook_filters_only_virtual_keyboard_before_native_scanning(monkeypatch):
+    entries = [
+        ("/Qt/plugins/platforminputcontexts/libqtvirtualkeyboardplugin.so", "PySide6/Qt/plugins/platforminputcontexts"),
+        (r"C:\Qt\plugins\platforminputcontexts\qtvirtualkeyboardplugin.dll", "PySide6/plugins/platforminputcontexts"),
+        ("/Qt/plugins/platforminputcontexts/libibusplatforminputcontextplugin.so", "platforminputcontexts"),
+        ("/Qt/plugins/platforminputcontexts/libfcitx5platforminputcontextplugin.so", "platforminputcontexts"),
+        ("/Qt/plugins/platforms/libqxcb.so", "platforms"),
+        (r"C:\Qt\plugins\platforms\qwindows.dll", "platforms"),
+    ]
+    # Source testing does not require the optional freezer build dependency.
+    for name in ("PyInstaller", "PyInstaller.utils", "PyInstaller.utils.hooks", "PyInstaller.utils.hooks.qt"):
+        monkeypatch.setitem(sys.modules, name, types.ModuleType(name))
+    qt_hooks = sys.modules["PyInstaller.utils.hooks.qt"]
+    qt_hooks.add_qt6_dependencies = lambda _: (["required.module"], entries, [("resource", "data")])
+    hook = runpy.run_path(str(Path(__file__).resolve().parents[1] / "packaging/hooks/hook-PySide6.QtGui.py"))
+    assert hook["binaries"] == entries[2:]
+    assert hook["hiddenimports"] == ["required.module"]
+    assert hook["datas"] == [("resource", "data")]
