@@ -72,15 +72,15 @@ class LivePanel(QWidget):
         self.geometry_label = label("Original resolution: awaiting a frame")
         self.geometry_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         layout.addWidget(self.geometry_label)
-        # Native Windows font metrics can make three buttons wider than the
-        # narrow preview slot. Keep every input/capture control reachable.
+        # Native Windows font metrics can make a row of Android controls wider
+        # than the narrow preview slot. Each action gets the full pane width.
         android = QGridLayout()
         self.back_button = button("Back", self.back_requested.emit)
         self.home_button = button("Home", self.home_requested.emit)
         self.capture_button = button("Capture", self.capture_requested.emit)
         android.addWidget(self.back_button, 0, 0)
-        android.addWidget(self.home_button, 0, 1)
-        android.addWidget(self.capture_button, 1, 0, 1, 2)
+        android.addWidget(self.home_button, 1, 0)
+        android.addWidget(self.capture_button, 2, 0)
         layout.addLayout(android)
         content = QWidget()
         contents = QVBoxLayout(content)

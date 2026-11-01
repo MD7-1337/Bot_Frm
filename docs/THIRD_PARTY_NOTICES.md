@@ -45,6 +45,33 @@ and [Qt for Python 6.8 deployment](https://doc.qt.io/qtforpython-6.8/deployment/
 The first-party guidance confirms separate third-party obligations; it does not
 certify this application's artifacts.
 
+### Exact installed Qt wheel inspection
+
+The recovery environment's installed Linux wheels are PySide6,
+PySide6-Essentials, PySide6-Addons and shiboken6 **6.8.3**. Searching each installed
+distribution's RECORD for license, licence, notice, copying and copyright file
+names found **no supplied license/notice text files**. Their METADATA declares
+`LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only`; that declaration cannot substitute
+for required license text or Chromium third-party notices. Windows wheels must
+be inspected independently. The collector records an explicit missing-notice
+status and retains each distribution's METADATA, WHEEL and RECORD with hashes.
+
+Direct installed-library queries report Qt **6.8.3**, QtWebEngine **6.8.3** and
+Chromium **122.0.6261.171** on this Linux environment. Builds now save the same
+queries to `THIRD_PARTY_NOTICES/Qt-build-information.json`; no GUI or network is
+started by these queries. Native Windows results must come from its own build.
+
+The official [PySide6 6.8.3 source directory](https://download.qt.io/official_releases/QtForPython/pyside6/PySide6-6.8.3-src/)
+offers `pyside-setup-everywhere-src-6.8.3.tar.xz`.
+The official [Qt 6.8.3 submodule source directory](https://download.qt.io/archive/qt/6.8/6.8.3/submodules/)
+offers `qtwebengine-everywhere-src-6.8.3.tar.xz` (approximately 540 MB), plus
+QtBase, QtDeclarative and other module sources. These are actionable source
+candidates; their existence alone does not prove matching wheel configuration,
+patches or complete corresponding source. Retrieve verified upstream checksums,
+retain the exact source and build information for every deployed module, extract
+and reconcile the third-party notices, then validate replacement. No archive
+download, source correspondence or redistribution clearance is claimed here.
+
 `tools/build_windows.py` copies installed distribution license/notice files and
 records package versions under `build/release-notices/`. PyInstaller also collects
 the package metadata. That inventory must be compared with the **actual** bundled

@@ -3,7 +3,7 @@ on:
   push:
     branches: [feat/cross-platform-alpha-release, recovery/continue-alpha-2026-11-01]
   pull_request:
-    branches: [feat/alpha-completion, feat/cross-platform-alpha-release]
+    branches: [feat/alpha-completion]
   workflow_dispatch:
 permissions:
   contents: read
@@ -28,6 +28,7 @@ jobs:
     timeout-minutes: 75
     env:
       STUDIO_GUI_TESTS: '1'
+      STUDIO_SCREENSHOT_DIR: validation-screenshots
       QT_QPA_PLATFORM: offscreen
       QTWEBENGINE_CHROMIUM_FLAGS: --disable-gpu
       STUDIO_LGPL_RUNTIME_DIR: build/lgpl-runtime
@@ -70,7 +71,9 @@ jobs:
           $failed = $false
           for ($i = 0; $i -lt $cases.Count; $i++) {
             & ${{ matrix.python }} -m pytest -q $cases[$i] "--junitxml=windows-regression-$i.xml"
-            if ($LASTEXITCODE -ne 0) { $failed = $true }
+            $testExit = $LASTEXITCODE
+            & ${{ matrix.python }} tools/ci_test_report.py "windows-regression-$i.xml"
+            if ($testExit -ne 0 -or $LASTEXITCODE -ne 0) { $failed = $true }
           }
           if ($failed) { exit 1 }
       - name: Full source and actual GUI regression
@@ -78,6 +81,8 @@ jobs:
         continue-on-error: true
         run: ${{ matrix.python }} -m pytest -q --junitxml=source-tests.xml
       - name: Publish source test details
+        id: report
+        continue-on-error: true
         if: always()
         run: ${{ matrix.python }} tools/ci_test_report.py source-tests.xml
       - name: Measure actual independent simulation workers
@@ -88,6 +93,7 @@ jobs:
         with:
           arch: x64
       - name: Install Windows FFmpeg build shell
+        id: msys2
         if: runner.os == 'Windows'
         uses: msys2/setup-msys2@v2
         with:
@@ -96,7 +102,7 @@ jobs:
           install: make diffutils pkgconf
       - name: Build LGPL FFmpeg and PyAV from verified sources (Windows)
         if: runner.os == 'Windows'
-        run: ${{ matrix.python }} tools/ci_build.py tools/build_lgpl_runtime.py --output build/lgpl-runtime --bash C:/msys64/usr/bin/bash.exe
+        run: ${{ matrix.python }} tools/ci_build.py tools/build_lgpl_runtime.py --output build/lgpl-runtime --bash "${{ steps.msys2.outputs.msys2-location }}/usr/bin/bash.exe"
       - name: Build LGPL FFmpeg and PyAV from verified sources (Ubuntu)
         if: runner.os == 'Linux'
         run: ${{ matrix.python }} tools/ci_build.py tools/build_lgpl_runtime.py --output build/lgpl-runtime
@@ -123,12 +129,21 @@ jobs:
         id: linux
         if: runner.os == 'Linux'
         run: ${{ matrix.python }} tools/ci_build.py tools/build_linux.py
+      - name: Verify Ubuntu archive without system Python as unprivileged user
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          docker build -f packaging/Dockerfile.ubuntu22-runtime-smoke -t studio-clean-runtime dist
+          studio_container=$(docker create studio-clean-runtime)
+          trap 'docker rm "$studio_container" >/dev/null' EXIT
+          docker cp "$studio_container:/evidence/ubuntu22-clean-runtime-smoke.json" dist/
+          docker cp "$studio_container:/evidence/ubuntu22-runtime-info.txt" dist/
       - name: Hold binary publication pending dependency license review
         id: distribution
         continue-on-error: true
         run: ${{ matrix.python }} -c "raise SystemExit('Binary upload blocked pending exact Qt/Chromium/Python notices and FFmpeg distribution review. Source and native package tests may run; no binary release is cleared.')"
       - name: Upload smoke-verified developer applications
-        if: success() && steps.distribution.outcome == 'success'
+        if: success() && steps.source.outcome == 'success' && steps.report.outcome == 'success' && steps.regressions.outcome != 'failure' && steps.distribution.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: AndroidAutomationStudio-${{ matrix.platform }}-${{ github.sha }}
@@ -147,16 +162,19 @@ jobs:
           retention-days: 30
           path: |
             source-tests.xml
+            validation-screenshots/
             windows-regression-*.xml
             dist/*payload-inventory.json
             worker-benchmark.json
             dist/*smoke.json
             dist/*manifest.json
             dist/*validation.json
+            dist/*runtime-info.txt
+            dist/*.sha256
             build/release-notices/inventory.json
             build/lgpl-runtime/lgpl-runtime.json
       - name: Enforce the source acceptance gate
-        if: steps.source.outcome != 'success' || steps.regressions.outcome == 'failure'
+        if: steps.source.outcome != 'success' || steps.report.outcome != 'success' || steps.regressions.outcome == 'failure'
         run: ${{ matrix.python }} -c "raise SystemExit('Source regression failed; any smoke-verified artifact remains Alpha developer review only. Read the test evidence.')"
       - name: Enforce the binary redistribution gate
         if: steps.distribution.outcome == 'failure'

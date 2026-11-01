@@ -1,5 +1,6 @@
 """Real Qt + Monaco + actual simulation workers; never a physical Android test."""
 from pathlib import Path
+import ast
 import json
 import os
 import shutil
@@ -48,7 +49,14 @@ def main():
         spin(app,lambda:window.active_simulation is not None and window.preview.frame is not None and not window._demo_pending)
         one=window.active_simulation; root=window.project_root
         for widget in (window.live_panel.start_button,window.live_panel.stop_button,window.live_panel.home_button,window.live_panel.back_button,window.live_panel.capture_button):
-            assert window.rect().contains(widget.mapTo(window,widget.rect().bottomRight())),widget.text()
+            if not window.rect().contains(widget.mapTo(window,widget.rect().bottomRight())):
+                if diagnostic_dir := os.environ.get('STUDIO_SCREENSHOT_DIR'):
+                    diagnostic_dir = Path(diagnostic_dir)
+                    diagnostic_dir.mkdir(parents=True, exist_ok=True)
+                    window.grab().save(str(diagnostic_dir/'phase6-clipped-controls.png'))
+                raise AssertionError({'control': widget.text(), 'geometry': widget.geometry().getRect(),
+                    'bottom_right': widget.mapTo(window,widget.rect().bottomRight()).toTuple(),
+                    'panel': window.live_panel.geometry().getRect(), 'window': window.rect().getRect()})
         assert window.registry.snapshot()==[] and window.devices.count()==0
         assert window.preview.frame.transport=='simulation'
         assert window.shell.simulation_notice.isVisible() and LABEL in window.shell.simulation_notice.text()
@@ -105,6 +113,8 @@ def main():
         click(window.recorder_panel,'Stop recording'); window._sync_controls()
         panel=window.recorder_panel; panel.table.selectRow(0)
         assert window.recorder.evidence[0].size==(360,720)
+        recorded_tap = ast.parse(panel.table.item(0,0).text()).body[0].value
+        recorded_x, recorded_y = (ast.literal_eval(argument) for argument in recorded_tap.args)
         click(panel,'Convert to Image Target…')
         spin(app,lambda:any(isinstance(d,CaptureDialog) for d in window._capture_dialogs))
         capture=next(d for d in window._capture_dialogs if isinstance(d,CaptureDialog))
@@ -113,7 +123,16 @@ def main():
         QFileDialog.getSaveFileName=lambda *a,**k:(str(target),'PNG')
         click(capture,'Save crop + insert reference…')
         spin(app,lambda:panel.table.item(0,0).text().startswith('click('))
-        assert target.exists() and panel.table.item(0,0).text()=='click("images/recorded-start.png")'
+        # A downscaled preview maps an integer Qt pointer back to device pixels;
+        # the acknowledged tap may be a pixel off the crop center. Conversion
+        # must preserve that actual tap, including its offset, rather than snap.
+        dx, dy = recorded_x - 180, recorded_y - 512
+        argument = '"images/recorded-start.png"'
+        if dx or dy:
+            argument = f'Pattern({argument}).targetOffset({dx}, {dy})'
+        assert target.exists() and panel.table.item(0,0).text()==f'click({argument})', {
+            'target': str(target), 'exists': target.exists(),
+            'step': panel.table.item(0,0).text(), 'logs': window.logs.toPlainText()[-2000:]}
         capture.reject(); spin(app,lambda:capture not in window._capture_dialogs)
         # Metadata follows each whole row when reordered and deleted.
         panel.delay.setValue(.01); click(panel,'Add delay')

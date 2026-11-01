@@ -23,6 +23,14 @@ FFMPEG_URL = "https://codeload.github.com/FFmpeg/FFmpeg/tar.gz/refs/tags/n7.1"
 FFMPEG_SHA256 = "7ddad2d992bd250a6c56053c26029f7e728bebf0f37f80cf3f8a0e6ec706431a"
 PYAV_URL = "https://files.pythonhosted.org/packages/f8/b6/83129e0337376214b0304893cbf0ad0a54718bb47845517fa5870439ca0b/av-14.2.0.tar.gz"
 PYAV_SHA256 = "132b5d52ca262b97b0356e8f48cbbe54d0ac232107a722ab8cc8c0c19eafa17b"
+FFMPEG_VERSION = "7.1"
+# Exact versions from the headers in the SHA-256-verified n7.1 source archive.
+FFMPEG_LIBRARY_VERSIONS = {
+    "libavutil": [59, 39, 100], "libavcodec": [61, 19, 100],
+    "libavformat": [61, 7, 100], "libavdevice": [61, 3, 100],
+    "libavfilter": [10, 4, 100], "libswscale": [8, 3, 100],
+    "libswresample": [5, 3, 100],
+}
 CONFIGURE_OPTIONS = [
     "--disable-gpl", "--disable-nonfree", "--disable-version3",
     "--disable-autodetect", "--disable-static", "--enable-shared",
@@ -75,6 +83,30 @@ def build_commands(prefix: Path, *, windows: bool) -> list[str]:
     return flags
 
 
+def prepare_version_metadata(source: Path) -> dict:
+    # ffbuild/version.sh tries git before RELEASE. A GitHub source archive
+    # unpacked below our checkout would otherwise inherit the application's Git
+    # revision. VERSION is FFmpeg's documented release-archive override. Record
+    # this generated build input alongside the original unmodified source tar.
+    if (source / "RELEASE").read_text(encoding="utf-8").strip() != FFMPEG_VERSION:
+        raise ValueError("Verified FFmpeg source has an unexpected RELEASE version")
+    version = source / "VERSION"
+    content = FFMPEG_VERSION + "\n"
+    if version.is_symlink() or (version.exists() and version.read_text(encoding="utf-8") != content):
+        raise ValueError("Refusing to replace conflicting FFmpeg VERSION metadata")
+    version.write_text(content, encoding="utf-8")
+    return {"path": "VERSION", "content": content,
+            "reason": "Pin source archive release metadata instead of inheriting the enclosing application's Git revision"}
+
+
+def require_runtime_versions(report: dict) -> None:
+    if (report.get("pyav") != "14.2.0" or report.get("ffmpeg_version") != FFMPEG_VERSION
+            or report.get("library_versions") != FFMPEG_LIBRARY_VERSIONS):
+        raise ValueError("Runtime versions differ from the exact verified PyAV/FFmpeg ABI: "
+                         + json.dumps({key: report.get(key) for key in
+                                       ("pyav", "ffmpeg_version", "library_versions")}, sort_keys=True))
+
+
 def prepare_windows_import_libraries(prefix: Path) -> None:
     # FFmpeg's MSVC install puts .lib files beside the DLLs in bin, while
     # PyAV --ffmpeg-dir searches lib. Copy genuine import libraries only.
@@ -122,9 +154,7 @@ print(json.dumps(dict(pyav=av.__version__,ffmpeg_version=ffmpeg_version,library=
                                env=probe_env, capture_output=True, text=True, timeout=30, check=True)
     report = json.loads(completed.stdout)
     require_lgpl(report["license"], report["configuration"])
-    if (report["pyav"] != "14.2.0" or report["ffmpeg_version"] != "7.1"
-            or report["library_versions"]["libavcodec"][0] != 61):
-        raise ValueError("Runtime versions differ from the intended PyAV/FFmpeg ABI")
+    require_runtime_versions(report)
     return report
 
 
@@ -157,6 +187,7 @@ def main() -> int:
     extract_source(ffmpeg_archive, source_root / "ffmpeg")
     extract_source(pyav_archive, source_root / "pyav")
     ffmpeg_source, pyav_source = source_root / "ffmpeg/FFmpeg-n7.1", source_root / "pyav/av-14.2.0"
+    version_metadata = prepare_version_metadata(ffmpeg_source)
     prefix = args.existing_prefix.resolve() if args.existing_prefix else output / "prefix"
     configure = build_commands(prefix, windows=windows)
     env = os.environ.copy()
@@ -224,6 +255,7 @@ def main() -> int:
     provenance = {"ffmpeg_url": FFMPEG_URL, "ffmpeg_sha256": FFMPEG_SHA256,
                   "pyav_url": PYAV_URL, "pyav_sha256": PYAV_SHA256,
                   "configure": configure, "external_prefix": args.existing_prefix is not None,
+                  "generated_source_metadata": [version_metadata],
                   "source_provenance_complete": args.existing_prefix is None,
                   "build_script": str(Path(__file__).name),
                   "build_script_sha256": hashlib.sha256(build_script).hexdigest(), "runtime": probe,

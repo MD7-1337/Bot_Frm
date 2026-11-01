@@ -125,7 +125,17 @@ class WindowsClosedPipe:
         self.winerror = winerror
 
     def poll(self, timeout):
-        return self.connection.poll(timeout)
+        try:
+            return self.connection.poll(timeout)
+        except OSError as closed:
+            self._closed(closed)
+
+    def _closed(self, closed):
+        if isinstance(closed, OSError) and getattr(closed, "winerror", None) != 109:
+            raise closed
+        error = OSError("The pipe has been ended")
+        error.winerror = self.winerror
+        raise error from closed
 
     def recv_bytes(self, limit):
         try:
@@ -133,14 +143,25 @@ class WindowsClosedPipe:
         except (EOFError, OSError) as closed:
             # Native Windows already reports broken-pipe as OSError(109),
             # whereas POSIX reports EOFError. Inject the requested error on both.
-            if isinstance(closed, OSError) and getattr(closed, "winerror", None) != 109:
-                raise
-            error = OSError("The pipe has been ended")
-            error.winerror = self.winerror
-            raise error
+            self._closed(closed)
 
     def close(self):
         self.connection.close()
+
+
+@pytest.mark.parametrize("operation", ["poll", "recv_bytes"])
+def test_windows_pipe_error_injection_covers_native_poll_and_receive(operation):
+    class NativeBrokenPipe:
+        def fail(self, argument):
+            error = OSError("Native Windows pipe is closed")
+            error.winerror = 109
+            raise error
+        poll = recv_bytes = fail
+
+    reader = WindowsClosedPipe(NativeBrokenPipe(), winerror=5)
+    with pytest.raises(OSError) as raised:
+        getattr(reader, operation)(0)
+    assert raised.value.winerror == 5
 
 
 @pytest.mark.parametrize("source,expected", [

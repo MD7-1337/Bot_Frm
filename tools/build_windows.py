@@ -92,8 +92,16 @@ def write_notices(destination: Path) -> list[dict]:
         distribution = importlib.metadata.distribution(name)
         record = {"name": name, "version": distribution.version,
                   "license": distribution.metadata.get("License-Expression") or distribution.metadata.get("License") or "Review included notices",
-                  "notice_files": []}
+                  "notice_files": [], "wheel_provenance_files": []}
         for resource in distribution.files or ():
+            if resource.name in {"METADATA", "WHEEL", "RECORD"} and any(part.endswith(".dist-info") for part in resource.parts):
+                source = Path(distribution.locate_file(resource))
+                target = destination / name / "wheel-provenance" / resource.name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(source, target)
+                record["wheel_provenance_files"].append({
+                    "path": target.relative_to(destination).as_posix(),
+                    "sha256": hashlib.sha256(target.read_bytes()).hexdigest()})
             # RECORD paths can include ../../../Scripts/. Only copy actual
             # license/notice resources into a generated, contained destination.
             if not any(word in resource.name.lower() for word in ("license", "licence", "notice", "copying", "copyright")):
@@ -106,6 +114,7 @@ def write_notices(destination: Path) -> list[dict]:
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(source, target)
             record["notice_files"].append(str(target.relative_to(destination)).replace("\\", "/"))
+        record["notice_status"] = "supplied files retained; review required" if record["notice_files"] else "MISSING: no license/notice text supplied by installed distribution"
         inventory.append(record)
     (destination / "inventory.json").write_text(json.dumps(inventory, indent=2), encoding="utf-8")
     # CPython's license is outside wheel metadata in common Python layouts.
@@ -114,6 +123,20 @@ def write_notices(destination: Path) -> list[dict]:
             shutil.copyfile(candidate, destination / "Python-LICENSE.txt")
             break
     collect_lgpl_notices(destination)
+    # Query the installed engine rather than assuming wheel and Chromium versions
+    # correspond. These calls do not initialize a GUI or start a browser process.
+    from PySide6.QtCore import QLibraryInfo
+    from PySide6.QtWebEngineCore import qWebEngineChromiumVersion, qWebEngineVersion
+    qt_version = QLibraryInfo.version().toString()
+    qt_report = {
+        "qt_version": qt_version, "qtwebengine_version": qWebEngineVersion(),
+        "chromium_version": qWebEngineChromiumVersion(),
+        "corresponding_source_verified": False,
+        "source_candidates": [
+            f"https://download.qt.io/archive/qt/{'.'.join(qt_version.split('.')[:2])}/{qt_version}/submodules/",
+            f"https://download.qt.io/official_releases/QtForPython/pyside6/PySide6-{importlib.metadata.version('PySide6')}-src/"],
+        "review": "Versioned upstream locations are candidates, not verified wheel build/source correspondence or a source offer"}
+    (destination / "Qt-build-information.json").write_text(json.dumps(qt_report, indent=2), encoding="utf-8")
     shutil.copyfile(ROOT / "docs" / "THIRD_PARTY_NOTICES.md", destination / "RELEASE_REVIEW.md")
     return inventory
 
