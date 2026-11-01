@@ -21,7 +21,63 @@ from datetime import datetime, timezone
 
 ROOT = Path(__file__).resolve().parents[1]
 BUILD_VERSION = "6.12.0"
-PACKAGES = ("PySide6", "PySide6-Essentials", "PySide6-Addons", "shiboken6", "numpy", "opencv-python-headless", "av", "tzdata")
+PACKAGES = ("PySide6", "PySide6-Essentials", "PySide6-Addons", "shiboken6", "numpy", "opencv-python-headless", "av", "tzdata", "pyinstaller")
+
+
+def collect_lgpl_notices(destination: Path) -> None:
+    """Retain corresponding sources only when they identify the installed wheel."""
+    runtime_dir = os.environ.get("STUDIO_LGPL_RUNTIME_DIR")
+    if not runtime_dir:
+        return  # Developer builds remain blocked from redistribution.
+    root = Path(runtime_dir).resolve()
+    manifest = json.loads((root / "lgpl-runtime.json").read_text(encoding="utf-8"))
+    if manifest.get("source_provenance_complete") is not True or manifest.get("external_prefix") is not False:
+        raise ValueError("LGPL runtime has no complete build provenance")
+    wheel = Path(manifest["wheel"])
+    if hashlib.sha256(wheel.read_bytes()).hexdigest() != manifest["wheel_sha256"]:
+        raise ValueError("LGPL runtime wheel differs from its provenance")
+    # Compare every installed av native file with that exact repaired wheel.
+    distribution = importlib.metadata.distribution("av")
+    with zipfile.ZipFile(wheel) as archive:
+        native = [name for name in archive.namelist()
+                  if name.lower().endswith((".pyd", ".dll", ".so")) or ".so." in name]
+        if not native:
+            raise ValueError("LGPL wheel has no native libraries")
+        for name in native:
+            installed = Path(distribution.locate_file(name))
+            if not installed.is_file() or hashlib.sha256(installed.read_bytes()).digest() != hashlib.sha256(archive.read(name)).digest():
+                raise ValueError("Installed PyAV/FFmpeg differs from verified LGPL wheel: " + name)
+    notices = root / "FFmpeg-notices"
+    for filename, key in (("ffmpeg-n7.1-source.tar.gz", "ffmpeg_sha256"),
+                          ("pyav-14.2.0-source.tar.gz", "pyav_sha256"),
+                          ("build_lgpl_runtime.py", "build_script_sha256")):
+        if hashlib.sha256((notices / filename).read_bytes()).hexdigest() != manifest[key]:
+            raise ValueError("LGPL corresponding source/build script integrity failure")
+    shutil.copytree(notices, destination / "FFmpeg", dirs_exist_ok=True)
+    shutil.copyfile(root / "lgpl-runtime.json", destination / "FFmpeg" / "lgpl-runtime.json")
+
+
+def write_payload_inventory(payload: Path, destination: Path) -> dict:
+    """Fingerprint actual deployed files; explicitly record unresolved review."""
+    records = []
+    for path in sorted(payload.rglob("*")):
+        if path.is_symlink():
+            resolved = path.resolve(strict=True)
+            if not resolved.is_relative_to(payload.resolve()):
+                raise ValueError("Payload inventory link escapes package")
+            records.append({"path": path.relative_to(payload).as_posix(), "symlink": os.readlink(path)})
+        elif path.is_file() and path != destination:
+            with path.open("rb") as stream:
+                digest = hashlib.file_digest(stream, "sha256").hexdigest()
+            records.append({"path": path.relative_to(payload).as_posix(), "bytes": path.stat().st_size, "sha256": digest})
+    report = {"schema": 1, "commit": source_commit(), "platform": platform.platform(),
+              "redistribution_approved": False,
+              "blockers": ["Application distribution license requires owner decision",
+                           "Exact deployed Qt/Chromium source and notice correspondence requires review",
+                           "Native dependency license mapping and replacement verification incomplete"],
+              "files": records}
+    destination.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    return report
 
 
 def write_notices(destination: Path) -> list[dict]:
@@ -52,6 +108,12 @@ def write_notices(destination: Path) -> list[dict]:
             record["notice_files"].append(str(target.relative_to(destination)).replace("\\", "/"))
         inventory.append(record)
     (destination / "inventory.json").write_text(json.dumps(inventory, indent=2), encoding="utf-8")
+    # CPython's license is outside wheel metadata in common Python layouts.
+    for candidate in (Path(sys.base_prefix) / "LICENSE.txt", Path(sys.base_prefix) / "LICENSE"):
+        if candidate.is_file():
+            shutil.copyfile(candidate, destination / "Python-LICENSE.txt")
+            break
+    collect_lgpl_notices(destination)
     shutil.copyfile(ROOT / "docs" / "THIRD_PARTY_NOTICES.md", destination / "RELEASE_REVIEW.md")
     return inventory
 
@@ -182,6 +244,9 @@ def main() -> int:
         "android_tools_bundled": args.include_android_tools,
     }, indent=2), encoding="utf-8")
     shutil.copyfile(ROOT / "docs/INSTALL_WINDOWS.md", payload / "START_HERE_WINDOWS.md")
+    inventory = ROOT / "dist/windows-payload-inventory.json"
+    write_payload_inventory(payload, inventory)
+    shutil.copyfile(inventory, payload / "PAYLOAD_INVENTORY.json")
     archive = ROOT / "dist" / "AndroidAutomationStudio-windows-x64-portable.zip"
     digest = create_portable_zip(payload, archive)
     smoke_report = ROOT / "dist" / "windows-frozen-smoke.json"

@@ -1,9 +1,9 @@
 name: Cross-platform Alpha validation and packages
 on:
   push:
-    branches: [feat/cross-platform-alpha-release]
+    branches: [feat/cross-platform-alpha-release, recovery/continue-alpha-2026-11-01]
   pull_request:
-    branches: [feat/alpha-completion]
+    branches: [feat/alpha-completion, feat/cross-platform-alpha-release]
   workflow_dispatch:
 permissions:
   contents: read
@@ -51,6 +51,28 @@ jobs:
           ${{ matrix.python }} tools/fetch_monaco.py
           ${{ matrix.python }} tools/fetch_adb.py
           ${{ matrix.python }} tools/fetch_scrcpy.py
+      - name: Independently rerun original Windows regressions
+        id: regressions
+        if: runner.os == 'Windows'
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $cases = @(
+            'tests/test_alpha_completion_gui.py::test_managed_project_debug_scheduled_simulation_and_restart',
+            'tests/test_debugger.py::test_pause_busy_debug_worker_dynamic_breakpoints_and_source_is_frozen',
+            'tests/test_device_workbench.py::test_multidevice_video_control_capture_editor_and_disconnect',
+            'tests/test_phase6_gui.py::test_real_demo_controls_recognition_recording_and_worker_journey',
+            'tests/test_project_management.py::test_archive_rejects_unsafe_portable_paths',
+            'tests/test_recovery_engine.py::test_wait_timeout_is_clamped_including_positional_arguments',
+            'tests/test_runtime.py::test_other_windows_pipe_errors_still_fail_closed',
+            'tests/test_visual_workspaces.py::test_device_manager_visual_library_and_recorder_workflow'
+          )
+          $failed = $false
+          for ($i = 0; $i -lt $cases.Count; $i++) {
+            & ${{ matrix.python }} -m pytest -q $cases[$i] "--junitxml=windows-regression-$i.xml"
+            if ($LASTEXITCODE -ne 0) { $failed = $true }
+          }
+          if ($failed) { exit 1 }
       - name: Full source and actual GUI regression
         id: source
         continue-on-error: true
@@ -125,6 +147,8 @@ jobs:
           retention-days: 30
           path: |
             source-tests.xml
+            windows-regression-*.xml
+            dist/*payload-inventory.json
             worker-benchmark.json
             dist/*smoke.json
             dist/*manifest.json
@@ -132,7 +156,7 @@ jobs:
             build/release-notices/inventory.json
             build/lgpl-runtime/lgpl-runtime.json
       - name: Enforce the source acceptance gate
-        if: steps.source.outcome != 'success'
+        if: steps.source.outcome != 'success' || steps.regressions.outcome == 'failure'
         run: ${{ matrix.python }} -c "raise SystemExit('Source regression failed; any smoke-verified artifact remains Alpha developer review only. Read the test evidence.')"
       - name: Enforce the binary redistribution gate
         if: steps.distribution.outcome == 'failure'

@@ -4,6 +4,47 @@ This repository does not currently supply an application LICENSE file. Establish
 the project's distribution license before making a public binary release. Build
 outputs are developer review artifacts, not a claim of distribution clearance.
 
+## Recovery review — 2026-11-01
+
+Public binary redistribution remains **BLOCKED**. The owner must choose the
+application's distribution license; this review does not choose one. In addition,
+the exact deployed Qt/Chromium notices, source correspondence and replacement
+procedure have not yet been verified. A successful build or metadata inventory
+does not clear these requirements.
+
+The builders now generate `windows-payload-inventory.json` or
+`linux-payload-inventory.json` from the actual frozen payload before archiving.
+The package includes the same report as `PAYLOAD_INVENTORY.json`. Every ordinary
+payload file has a SHA-256 and size; contained Linux library aliases record their
+link target. The inventory excludes itself and describes the payload, not the
+outer ZIP/installer. Archive checksums remain separate. This evidence permits
+native-library reconciliation; it is deliberately not a completed license map.
+
+When `STUDIO_LGPL_RUNTIME_DIR` is configured, notice collection now rejects an
+external or incomplete FFmpeg prefix, verifies the repaired wheel hash, compares
+every installed PyAV/FFmpeg native file with that wheel, verifies the included
+FFmpeg/PyAV source archives and build script, and copies their notices and source
+into the frozen package. Previously this copy was documented but not implemented.
+Ordinary developer builds without that environment setting remain possible and
+remain blocked from redistribution. PyInstaller distribution notices and available
+CPython installation license text are also retained. Missing or incomplete
+CPython notices still require resolution for the selected native Python build.
+
+Qt's LGPL route requires more than dynamic DLLs: document the chosen license for
+each deployed module, corresponding source and modifications, replacement or
+relinking instructions, applicable installation information, and recipient rights.
+The one-folder layout leaves native libraries outside the executable, but actual
+replacement with a compatible rebuilt Qt/PySide library has not been tested.
+QtWebEngine also embeds Chromium components with separate licenses. Obtain the
+notices and corresponding sources matching the actual 6.8.3 wheel binaries;
+the rolling online documentation is a reference, not artifact evidence.
+
+Primary review references: [Qt LGPL obligations](https://www.qt.io/development/open-source-lgpl-obligations),
+[Qt 6.8 WebEngine licensing](https://doc.qt.io/qt-6.8/qtwebengine-licensing.html),
+and [Qt for Python 6.8 deployment](https://doc.qt.io/qtforpython-6.8/deployment/index.html).
+The first-party guidance confirms separate third-party obligations; it does not
+certify this application's artifacts.
+
 `tools/build_windows.py` copies installed distribution license/notice files and
 records package versions under `build/release-notices/`. PyInstaller also collects
 the package metadata. That inventory must be compared with the **actual** bundled
