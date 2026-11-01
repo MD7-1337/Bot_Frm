@@ -8,8 +8,8 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: alpha-${{ github.workflow }}-${{ github.ref }}
-  # Preserve native build evidence when a follow-up fix is pushed.
+  group: alpha-${{ github.workflow }}-${{ github.sha }}
+  # Preserve each commit independently while allowing the latest fix to validate.
   cancel-in-progress: false
 jobs:
   test-and-package:
@@ -22,16 +22,19 @@ jobs:
             platform: ubuntu-x86_64
             python: .venv/bin/python
             qpa: offscreen
+            font_dir: ''
           - os: windows-2022
             platform: windows-x64
             python: .venv/Scripts/python.exe
-            qpa: windows
+            qpa: offscreen
+            font_dir: C:/Windows/Fonts
     runs-on: ${{ matrix.os }}
     timeout-minutes: 75
     env:
       STUDIO_GUI_TESTS: '1'
       STUDIO_SCREENSHOT_DIR: validation-screenshots
       QT_QPA_PLATFORM: ${{ matrix.qpa }}
+      QT_QPA_FONTDIR: ${{ matrix.font_dir }}
       QTWEBENGINE_CHROMIUM_FLAGS: --disable-gpu
       STUDIO_LGPL_RUNTIME_DIR: build/lgpl-runtime
     steps:
@@ -49,15 +52,16 @@ jobs:
           python -m pip install uv==0.12.23
           uv sync --locked --extra test --python 3.12
           uv pip install --python ${{ matrix.python }} PyInstaller==6.12.0
-      - name: Verify native Windows GUI fonts
+      - name: Verify Windows headless GUI fonts
         if: runner.os == 'Windows'
         run: >-
           ${{ matrix.python }} -c "from PySide6.QtWidgets import QApplication;
-          from PySide6.QtGui import QFontDatabase, QFontMetrics;
+          from PySide6.QtGui import QFont, QFontDatabase, QFontMetrics;
           a=QApplication([]); families=QFontDatabase.families();
-          assert 'Segoe UI' in families, 'Native Windows font database unavailable';
+          assert 'Segoe UI' in families, 'Windows test font database unavailable';
+          assert QFontMetrics(QFont('Segoe UI',10)).inFontUcs4(ord('A')), 'Segoe UI cannot render controls';
           assert QFontMetrics(a.font()).inFontUcs4(ord('A')), 'Default font cannot render Latin controls';
-          print('Native Windows GUI fonts verified')"
+          print('Windows headless GUI fonts verified')"
       - name: Restore verified editor and external Android tools
         run: |
           ${{ matrix.python }} tools/fetch_monaco.py
@@ -144,6 +148,8 @@ jobs:
         run: ${{ matrix.python }} tools/ci_build.py tools/build_windows.py --installer
       - name: Install, smoke and uninstall per-user Windows package
         if: runner.os == 'Windows'
+        env:
+          QT_QPA_PLATFORM: windows
         shell: pwsh
         run: ./tools/verify_installer_windows.ps1
       - name: Build Ubuntu archive and smoke extracted executable

@@ -25,6 +25,7 @@ $report = (Join-Path (Get-Location) "dist/windows-installed-smoke.json")
 $smoke = Start-Process -FilePath $exe -ArgumentList @('--release-smoke-report', "`"$report`"") -Wait -PassThru
 if ($smoke.ExitCode -ne 0) { throw "Installed application smoke failed: $($smoke.ExitCode)" }
 $result = Get-Content -Raw $report | ConvertFrom-Json
+if ($result.gui.qt_platform -ne 'windows') { throw 'Installed application did not exercise native Windows platform' }
 if (-not $result.passed -or -not $result.frozen) { throw "Installed application report did not confirm frozen success" }
 $uninstaller = Join-Path $installDir "unins000.exe"
 $removed = Start-Process -FilePath $uninstaller -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') -Wait -PassThru

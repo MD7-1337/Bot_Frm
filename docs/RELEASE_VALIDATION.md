@@ -31,8 +31,9 @@ Each full suite includes 30 opt-in GUI cases. The three skips require optional
 Tesseract executable/model availability. No failed case was skipped. The two
 remaining Windows failures concern exact restored CRLF text comparison and
 preview-pane geometry in the Windows offscreen fontless environment. Follow-up
-changes correct source comparisons, bound the editor pane, and use the native
-Windows Qt platform with a Segoe UI/font preflight. Native validation of that
+changes correct source comparisons, bound the editor pane, and supply Windows system fonts to Qt offscreen for deterministic large/compact
+source journeys, with a Segoe UI/glyph preflight. Installed executable smoke
+separately uses and verifies the native Windows Qt platform. Native validation of that
 follow-up must be checked separately before acceptance.
 
 Frozen smoke exercises actual Monaco, spawned simulation workers, OpenCV image
