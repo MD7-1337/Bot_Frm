@@ -37,6 +37,34 @@ def test_frozen_resource_paths_and_explicit_external_tools(tmp_path, monkeypatch
     assert adb_executable() == str(tmp_path / "external adb")
 
 
+def test_windows_portable_adb_resolution_without_development_environment(tmp_path, monkeypatch):
+    import app.devices.paths as paths
+    exe_dir = tmp_path / "portable"
+    internal = exe_dir / "_internal"
+    internal.mkdir(parents=True)
+    monkeypatch.setattr(paths.sys, "platform", "win32")
+    monkeypatch.setattr(paths.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(paths.sys, "_MEIPASS", str(internal), raising=False)
+    monkeypatch.setattr(paths.sys, "executable", str(exe_dir / "AndroidAutomationStudio.exe"))
+    monkeypatch.delenv("STUDIO_ADB", raising=False)
+    monkeypatch.delenv("ANDROID_HOME", raising=False)
+    monkeypatch.delenv("ANDROID_SDK_ROOT", raising=False)
+    monkeypatch.delenv("LOCALAPPDATA", raising=False)
+    monkeypatch.setattr(paths.shutil, "which", lambda name: "C:/old/adb.exe" if name == "adb.exe" else None)
+    bundled = internal / ".tools/platform-tools/adb.exe"
+    bundled.parent.mkdir(parents=True)
+    bundled.write_bytes(b"fixture")
+    assert paths.adb_executable() == str(bundled)
+    bundled.unlink()
+    portable = exe_dir / "platform-tools/adb.exe"
+    portable.parent.mkdir()
+    portable.write_bytes(b"fixture")
+    assert paths.adb_executable() == str(portable)
+    assert paths.adb_executable(str(exe_dir / "missing-adb.exe")) == str(exe_dir / "missing-adb.exe")
+    portable.unlink()
+    assert paths.adb_executable() == "C:/old/adb.exe"
+
+
 def test_portable_zip_has_stable_contained_layout_and_matching_checksum(tmp_path):
     payload = tmp_path / "AndroidAutomationStudio"
     resources = payload / "_internal/editor_web"

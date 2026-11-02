@@ -51,6 +51,13 @@ Windows PC from the recovery branch:
    on the destination computer. It is unsigned; follow your computer's normal
    execution policy. Save projects outside the extracted application folder.
 
+5. For USB detection, extract Google's official SDK `platform-tools` folder
+   beside `AndroidAutomationStudio.exe`, so the path is
+   `AndroidAutomationStudio\platform-tools\adb.exe`. Keep the entire folder,
+   including its DLLs. Studio detects this path automatically; the build's
+   Python virtual environment is not needed on the test computer. If you use
+   standalone scrcpy's ADB instead, choose its `adb.exe` in Studio Settings.
+
 Optional: install Inno Setup 6 and pass `-Installer` to the build script. The
 portable ZIP is enough for the first test. Do not redistribute the personal
 build while the third-party review remains open.
@@ -102,3 +109,21 @@ Capture a screenshot with Windows Snipping Tool when useful; remove private
 screen content, serials and pairing codes. Send the build commit and ZIP SHA-256
 from the manifest, Windows version/display scale, exact steps, expected and
 actual result, the app log/diagnostic JSON, and a screenshot if relevant.
+
+For an empty Device Manager, open Settings and note **Currently selected** ADB.
+Use **Device Manager → Diagnose Connection → Export Diagnostics…**. In PowerShell,
+run these commands with that same `adb.exe` path (replace the example path):
+
+```powershell
+$adbPath = 'C:\path\to\platform-tools\adb.exe'
+& $adbPath version
+& $adbPath devices -l
+Get-ChildItem Env:ADB_SERVER_SOCKET,Env:ANDROID_ADB_SERVER_PORT -ErrorAction SilentlyContinue
+```
+
+Compare the output with the ADB executable used by standalone scrcpy, if known.
+The app and standalone scrcpy share the selected ADB server endpoint; a custom
+server environment variable can send either client to a different server. Do
+not run `kill-server` during this comparison. Record whether the phone shows as
+`device`, `unauthorized`, `offline`, or is absent. Review the diagnostic export
+before sharing because paths and serials may identify your computer or phone.

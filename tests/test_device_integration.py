@@ -48,6 +48,19 @@ def test_discovery_failure_means_unknown_not_disconnected():
     assert registry.update([]) == [DeviceInfo("USB_A", "disconnected", "Known", 3)]
 
 
+def test_adb_discovery_states_flow_into_registry():
+    registry = DeviceRegistry()
+    connected = AdbClient.parse_devices("List of devices attached\r\nPHONE device model:Pixel_8\r\n")
+    assert registry.update(connected) == [DeviceInfo("PHONE", "device", "Pixel_8", 1)]
+    unauthorized = AdbClient.parse_devices("List of devices attached\nPHONE unauthorized\n")
+    assert registry.update(unauthorized) == [DeviceInfo("PHONE", "unauthorized", "Pixel_8", 2)]
+    offline = AdbClient.parse_devices("List of devices attached\nPHONE offline\n")
+    assert registry.update(offline) == [DeviceInfo("PHONE", "offline", "Pixel_8", 3)]
+    assert registry.update(AdbClient.parse_devices("List of devices attached\n")) == [
+        DeviceInfo("PHONE", "disconnected", "Pixel_8", 4)]
+    assert registry.update(connected) == [DeviceInfo("PHONE", "device", "Pixel_8", 5)]
+
+
 def test_snapshot_is_an_independent_container():
     registry = DeviceRegistry()
     result = registry.update([DeviceInfo("USB_A", "device")])

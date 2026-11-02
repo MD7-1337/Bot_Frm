@@ -198,11 +198,20 @@ def main():
     app.processEvents()
     assert window.adb.actions == before
 
+    def failed_discovery():
+        raise RuntimeError("fixture ADB launch failed")
+    window.adb.devices = failed_discovery
+    window.refresh_devices()
+    spin(app, lambda: not window.discover_pending)
+    assert window.registry.get("fixture-two").state == "unknown"
+    assert "fixture ADB launch failed" in window.device_manager.connection_status.text()
+    assert "ADB discovery failed" in window.device_manager.summary.text()
+
     window.saved_source = window.editor.source  # Explicit test-only discard policy.
     window.close()
     spin(app, lambda: window._shutdown_complete)
     assert window.streams.closed and window.runtime.close(timeout=0)
-    print(json.dumps({key: True for key in ("two_previews", "serial_control", "capture_monaco", "fresh_match", "disconnect", "cleanup")}))
+    print(json.dumps({key: True for key in ("two_previews", "serial_control", "capture_monaco", "fresh_match", "disconnect", "discovery_error", "cleanup")}))
 
 
 if __name__ == "__main__":

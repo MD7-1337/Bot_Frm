@@ -765,10 +765,12 @@ class StudioWindow(QMainWindow):
         self.discover_pending = True
         def finished(devices, error):
             self.discover_pending = False
+            failure_message = None
             if error:
                 self.log(error)
                 observed = self.registry.mark_unknown()
-                self.device_manager.connection_status.setText(f"ADB discovery failed: {error}\n{SOLUTIONS['discovery']} Use Diagnose Connection for the failed stage.")
+                failure_message = (f"ADB discovery failed using {self.adb.executable}: {error}\n"
+                                   "Open Settings to choose adb.exe, then Diagnose Connection. " + SOLUTIONS['discovery'])
             else:
                 observed = self.registry.update(devices)
             self._apply_device_states(observed)
@@ -800,6 +802,12 @@ class StudioWindow(QMainWindow):
             del blocker
             self.device_manager.update_devices(observed)
             self._refresh_device_details()
+            if failure_message:
+                self.device_manager.connection_status.setText(failure_message)
+                self.device_manager.empty_state.setText(failure_message)
+                self.device_manager.summary.setText("ADB discovery failed; device state is unknown.")
+            else:
+                self.device_manager.empty_state.setText("No phones detected\n\nConnect a USB data cable and authorize debugging, or use Wireless debugging.\n\nUse Diagnose Connection if ADB cannot see the phone.")
             self.device_manager.set_available(bool(self.selected_serial()), self.busy(self.selected_serial()))
             if self._connection_confirmation is not None:
                 endpoint = self._connection_confirmation
@@ -813,7 +821,9 @@ class StudioWindow(QMainWindow):
                     self.device_manager.connection_status.setText(message)
                     self.device_manager.add_history(message)
             if not observed:
-                message = "No devices detected. Connect a USB data cable, unlock the phone and authorize debugging, then Refresh. School PC USB access may require IT permission."
+                message = (f"No devices detected by {self.adb.executable}. Connect a USB data cable, unlock the phone "
+                           "and authorize debugging, then Refresh. If standalone scrcpy sees it, choose scrcpy's adb.exe "
+                           "in Settings and run Diagnose Connection.")
                 if self._discovery_message != message:
                     self.log(message)
                 self._discovery_message = message
