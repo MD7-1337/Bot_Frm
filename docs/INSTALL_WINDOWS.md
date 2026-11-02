@@ -15,6 +15,9 @@ See [current validation](RELEASE_VALIDATION.md) for the exact source acceptance
 status and remaining license obligations. No approved Windows binary download is
 currently offered.
 
+For a personal Windows-native build and first hands-on test, follow
+[FIRST_WINDOWS_ALPHA_TEST.md](FIRST_WINDOWS_ALPHA_TEST.md).
+
 ## Download and launch after clearance
 
 1. Open [the cross-platform workflow](https://github.com/MD7-1337/Bot_Frm/actions/workflows/cross-platform-alpha.yml)

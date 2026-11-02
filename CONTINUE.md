@@ -2,6 +2,20 @@
 
 ## 2026-11-02 first personal Windows Alpha milestone
 
+Final source/build commit: `139785ba0549fc590bdab95616e14c409b1e580f`.
+[Native CI run](https://github.com/MD7-1337/Bot_Frm/actions/runs/41460083072)
+recorded Windows 975 passed/0 failed/3 optional-Tesseract skips, Ubuntu 975
+passed/0 failed/3 same skips, and three additional passing Windows runs of the
+formerly failing visible journey. Both actual packages passed frozen smoke;
+Windows installer and installed EXE passed native Windows Qt smoke. The extracted
+portable smoke hid Python and Node from `PATH` and ran outside the checkout.
+Ubuntu also passed its clean-container test without system Python. Final CI
+failure is solely the intentional binary redistribution gate; application ZIP
+and EXE were **not uploaded**. The validated but ephemeral ZIP SHA-256 was
+`fc410593ac0e9084373cac378be7456691edcdd6f54f700543c70ea92f216fff`.
+Physical Android and independent Windows 10/11 recipient testing remain
+**NOT VERIFIED**.
+
 - Work remains on `recovery/continue-alpha-2026-11-01`; PR #4 and PR #5 were
   inspected as open drafts and were not merged.
 - The Windows-only visible Alpha journey failure at `Home` followed a completed
@@ -20,8 +34,8 @@
   and exact native dependency notices/source/replacement evidence are still
   incomplete. Binary upload remains blocked; no downloadable ZIP is claimed.
   A personal local Windows build is the current test path.
-- Check the newest CI run for exact Windows/Ubuntu results and frozen smoke after
-  the next push. Physical Android testing remains **NOT VERIFIED**.
+- Build on a personal Windows 10/11 PC using the documented script and report
+  the observed result. Physical Android testing remains **NOT VERIFIED**.
 
 ## Exact next steps
 
