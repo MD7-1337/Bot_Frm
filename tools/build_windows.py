@@ -216,6 +216,11 @@ def verify_extracted_zip(archive: Path, report_path: Path) -> dict:
         env = os.environ.copy()
         env.pop("PYTHONPATH", None)
         env.pop("PYTHONHOME", None)
+        # The frozen EXE must find its own Python, Qt and Monaco payload.
+        # Keep only Windows system tools on PATH, hiding setup-python/Node and
+        # the checkout's virtual environment during the relocated smoke.
+        windows = Path(env.get("SystemRoot", r"C:\Windows"))
+        env["PATH"] = os.pathsep.join((str(windows / "System32"), str(windows)))
         subprocess.run([str(payload / "AndroidAutomationStudio.exe"), "--release-smoke-report", str(report_path)],
                        cwd=root, env=env, timeout=240, check=True)
     report = json.loads(report_path.read_text(encoding="utf-8"))
