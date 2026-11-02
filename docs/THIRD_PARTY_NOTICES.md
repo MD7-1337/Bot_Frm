@@ -1,13 +1,16 @@
 # Release notice and license review
 
-This repository does not currently supply an application LICENSE file. Establish
-the project's distribution license before making a public binary release. Build
-outputs are developer review artifacts, not a claim of distribution clearance.
+This repository does not currently supply an application LICENSE file. The owner
+has chosen MIT for original application code where they hold the necessary rights.
+The application history includes contributions under more than one identity and
+a bot; those rights and the accurate copyright attribution still need review
+before an MIT license file can cover all original code. Build outputs are developer
+review artifacts, not a claim of distribution clearance.
 
 ## Recovery review — 2026-11-01
 
-Public binary redistribution remains **BLOCKED**. The owner must choose the
-application's distribution license; this review does not choose one. In addition,
+Public binary redistribution remains **BLOCKED**. The owner's MIT direction does
+not itself verify rights to every contribution. In addition,
 the exact deployed Qt/Chromium notices, source correspondence and replacement
 procedure have not yet been verified. A successful build or metadata inventory
 does not clear these requirements.

@@ -150,7 +150,8 @@ jobs:
       - name: Build Windows archive and smoke extracted executable
         id: windows
         if: runner.os == 'Windows'
-        run: ${{ matrix.python }} tools/ci_build.py tools/build_windows.py --installer
+        shell: pwsh
+        run: ./tools/build-windows-alpha.ps1 -Prepared -Installer
       - name: Install, smoke and uninstall per-user Windows package
         if: runner.os == 'Windows'
         env:

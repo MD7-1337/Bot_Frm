@@ -1401,6 +1401,7 @@ class StudioWindow(QMainWindow):
             self.log("Select an available, idle phone. Manual control is blocked while its worker runs.")
             return
         self.pending_controls.add(serial)
+        self._sync_controls()
         cancelled = self._manual_cancel
         connection = self._connection_token(serial)
         generation = self._device_record(serial).generation
@@ -1434,6 +1435,7 @@ class StudioWindow(QMainWindow):
             self.recorder.complete(ticket, started, failure, evidence=evidence)
             self.recorder_panel.refresh()
             self.log(failure or f"Control command completed on {serial}")
+            self._sync_controls()
         self._submit(dispatch, finished)
 
     def _key(self, key):
