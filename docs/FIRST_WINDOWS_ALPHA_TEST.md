@@ -58,6 +58,10 @@ Windows PC from the recovery branch:
    Python virtual environment is not needed on the test computer. If you use
    standalone scrcpy's ADB instead, choose its `adb.exe` in Studio Settings.
 
+On the first normal launch, a dismissible connection wizard explains ADB,
+authorization, diagnostics, and preview. It appears once per user settings
+profile. Studio still starts in Demo Mode without ADB or a phone.
+
 Optional: install Inno Setup 6 and pass `-Installer` to the build script. The
 portable ZIP is enough for the first test. Do not redistribute the personal
 build while the third-party review remains open.
@@ -98,8 +102,11 @@ full one-phone and two-phone checklist is in [hardware acceptance](HARDWARE_ACCE
 
 ## Report a bug
 
-Use **Device Manager → Diagnostics → Export Diagnostics…** and review the redacted
-JSON before sharing. For startup issues, run from PowerShell:
+Use **Device Manager → Diagnostics → Export Bug Report…**. Review the editable,
+redacted JSON before saving or sharing. It includes build identity, dependency
+health, device states, and recent bounded application events; it does not include
+screenshots or script source. The event-log path is shown in Settings → Privacy.
+For startup issues, run from PowerShell:
 
 ```powershell
 .\AndroidAutomationStudio.exe --health-report "$env:TEMP\studio-health.json"
@@ -108,11 +115,16 @@ JSON before sharing. For startup issues, run from PowerShell:
 Capture a screenshot with Windows Snipping Tool when useful; remove private
 screen content, serials and pairing codes. Send the build commit and ZIP SHA-256
 from the manifest, Windows version/display scale, exact steps, expected and
-actual result, the app log/diagnostic JSON, and a screenshot if relevant.
+actual result, the reviewed bug report, and a screenshot if relevant.
 
 For an empty Device Manager, open Settings and note **Currently selected** ADB.
-Use **Device Manager → Diagnose Connection → Export Diagnostics…**. In PowerShell,
-run these commands with that same `adb.exe` path (replace the example path):
+Use **Device Manager → Diagnose Connection → Export Diagnostics…**. The
+**Compare with external adb.exe…** action runs the Studio-selected and
+standalone scrcpy ADB executables in the same process environment and shows
+their versions and redacted device states side by side. ADB may update its
+shared server if the versions differ. Review the comparison before copying it.
+You can also run these PowerShell commands with the exact path shown in Studio
+Settings (replace the example path):
 
 ```powershell
 $adbPath = 'C:\path\to\platform-tools\adb.exe'
@@ -122,8 +134,7 @@ Get-ChildItem Env:ADB_SERVER_SOCKET,Env:ANDROID_ADB_SERVER_PORT -ErrorAction Sil
 ```
 
 Compare the output with the ADB executable used by standalone scrcpy, if known.
-The app and standalone scrcpy share the selected ADB server endpoint; a custom
-server environment variable can send either client to a different server. Do
-not run `kill-server` during this comparison. Record whether the phone shows as
+A custom server environment variable can send either client to a different
+server. Do not run `kill-server` during this comparison. Record whether the phone shows as
 `device`, `unauthorized`, `offline`, or is absent. Review the diagnostic export
 before sharing because paths and serials may identify your computer or phone.

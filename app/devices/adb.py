@@ -293,14 +293,21 @@ class AdbClient:
             raise AdbError("ADB discovery returned no device-list header; connection state is unknown.")
         seen: set[str] = set()
         for line in lines[header + 1:]:
+            if not line.strip():
+                continue
+            # ADB may print daemon startup chatter before or after the header.
+            # Other unparseable rows mean the transport state is unknown, not
+            # that the host has no phones.
+            if line.lstrip().startswith("* daemon"):
+                continue
             parts = line.strip().split()
             if len(parts) < 2 or parts[0] in ("List", "adb:") or parts[0].startswith("*"):
-                continue
+                raise AdbError("ADB discovery returned a malformed device row; connection state is unknown.")
             # The long listing may contain product/device/transport_id fields.
             try:
                 validate_observed_serial(parts[0])
-            except ValueError:
-                continue
+            except ValueError as error:
+                raise AdbError("ADB discovery returned an invalid device identifier; connection state is unknown.") from error
             if parts[0] in seen:
                 if set(parts[0]) == {"?"} and parts[1] == "no":
                     # Several unreadable serials cannot be distinguished. Keep

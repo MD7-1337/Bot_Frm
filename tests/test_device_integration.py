@@ -91,6 +91,9 @@ def test_full_device_state_listing(monkeypatch, output, expected):
 @pytest.mark.parametrize("output,message", [
     (b"Unexpected transport response\n", "header"),
     (b"List of devices attached\nA device\nA offline\n", "duplicate"),
+    (b"List of devices attached\nBROKEN_ROW\n", "malformed"),
+    (b"List of devices attached\nadb: server unreachable\n", "malformed"),
+    (b"List of devices attached\nINVALID! device\n", "invalid device identifier"),
 ])
 def test_ambiguous_discovery_is_an_error_not_an_empty_list(monkeypatch, output, message):
     monkeypatch.setattr("app.devices.adb.subprocess.run", Mock(return_value=completed(output)))

@@ -26,6 +26,8 @@ class DeviceManagerPanel(QWidget):
     cancel_diagnostics_requested = Signal()
     settings_requested = Signal()
     wizard_requested = Signal()
+    bug_report_requested = Signal()
+    compare_adb_requested = Signal()
 
     def __init__(self, devices, settings, parent=None):
         super().__init__(parent)
@@ -154,6 +156,8 @@ class DeviceManagerPanel(QWidget):
         self.diagnostic_output.setAccessibleName("Connection diagnostic stages and report")
         self.diagnostic_output.setPlaceholderText("Run diagnostics on this computer, then copy the redacted report. Checks requiring a phone stay NOT VERIFIED until they run successfully.")
         diagnostics_layout.addWidget(self.diagnostic_output, stretch=1)
+        diagnostics_layout.addWidget(button("Export Bug Report…", self.bug_report_requested.emit))
+        diagnostics_layout.addWidget(button("Compare with external adb.exe…", self.compare_adb_requested.emit))
         self.tabs.addTab(diagnostics, "Diagnostics")
         split.addWidget(self.tabs)
         split.setChildrenCollapsible(False)

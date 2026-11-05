@@ -113,6 +113,11 @@ def gui_smoke(*, timeout_ms: int = 60000) -> dict:
 
     try:
         wait(lambda: window.editor.is_ready and not window.jobs, "offline Monaco")
+        from app.support import bug_report
+        diagnostic = json.loads(bug_report(adb_path=window.adb.executable, health={"checks": []},
+                                           devices=window.registry.snapshot(), log_path=window.event_log_path))
+        if diagnostic["frozen"] != bool(getattr(sys, "frozen", False)) or "recent_events" not in diagnostic:
+            raise RuntimeError("Packaged bug report could not identify this runtime")
         startup_ms = round(1000 * (time.perf_counter() - started), 1)
         idle_rss = resident_bytes()
         window.start_demo()
@@ -175,7 +180,7 @@ def gui_smoke(*, timeout_ms: int = 60000) -> dict:
         active_rss = resident_bytes()
         result = {"passed": True, "monaco_ready": True, "window_visible": window.isVisible(),
                   "qt_platform": application.platformName(),
-                  "checks": {key: True for key in ("demo", "recognition", "debug_breakpoint", "debug_variables",
+                  "checks": {key: True for key in ("bug_report", "demo", "recognition", "debug_breakpoint", "debug_variables",
                     "debug_step", "recorder", "scheduled_worker", "project_export_restore")},
                   "startup_ms": startup_ms, "idle_parent_rss_bytes": idle_rss,
                   "active_parent_rss_bytes": active_rss, "heartbeat_samples": len(heartbeat),
