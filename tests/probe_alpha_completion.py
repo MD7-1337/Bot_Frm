@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from PySide6.QtCore import QPoint, Qt, QTimer
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QDialog, QDialogButtonBox, QFileDialog, QInputDialog, QLineEdit, QMessageBox
+from PySide6.QtWidgets import QApplication, QDialog, QDialogButtonBox, QFileDialog, QInputDialog, QLineEdit, QMessageBox, QScrollArea
 
 from app.projects.management import ProjectStore
 from app.ui.capture_dialog import CaptureDialog
@@ -208,10 +208,52 @@ def main(root, screenshots):
     click(window.recorder_panel, "Start on current phone")
     click(window.live_panel, "Home")
     spin(application, lambda: window.simulations.client(serial).state()["screen"] == "start" and not window.pending_controls)
-    QTest.qWait(200)
+    # HOME acknowledgement precedes the asynchronously captured frame and its
+    # status/layout update. A resize invalidates the preview's deferred single
+    # tap, so wait for that new frame and a settled input transform first.
+    home_acknowledged = time.monotonic()
+    spin(application, lambda: window.preview.frame is not None
+         and window.preview.frame.serial == serial
+         and window.preview.frame.captured_at > home_acknowledged
+         and window.live_panel.status.text().endswith("start"))
+    epoch = window.preview._input_epoch
+    settled_at = time.monotonic()
+    def transform_settled():
+        nonlocal epoch, settled_at
+        if window.preview._input_epoch != epoch:
+            epoch, settled_at = window.preview._input_epoch, time.monotonic()
+        return (time.monotonic() - settled_at >= application.doubleClickInterval() / 1000
+                and time.monotonic() - window.preview.frame.captured_at < .5)
     point = QPoint(*map(round, window.preview.viewport().from_device(180, 512)))
+    parent = window.preview.parentWidget()
+    while parent is not None and not isinstance(parent, QScrollArea):
+        parent = parent.parentWidget()
+    if parent is not None:
+        target = window.preview.mapTo(parent.widget(), point)
+        parent.ensureVisible(target.x(), target.y(), 16, 16)
+        application.processEvents()
+    spin(application, transform_settled)
+    point = QPoint(*map(round, window.preview.viewport().from_device(180, 512)))
+    assert window.preview.visibleRegion().contains(point), "Recorded tap target is clipped"
+    gestures = []
+    window.preview.gesture.connect(lambda *arguments: gestures.append(arguments))
     QTest.mouseClick(window.preview, Qt.MouseButton.LeftButton, pos=point)
-    spin(application, lambda: window.simulations.client(serial).state()["screen"] == "dashboard" and not window.pending_controls)
+    try:
+        spin(application, lambda: bool(gestures))
+    except AssertionError as error:
+        raise AssertionError({'gesture_missing': True, 'epoch_before': epoch,
+            'epoch_after': window.preview._input_epoch, 'preview': window.preview.geometry().getRect(),
+            'frame_age': time.monotonic() - window.preview.frame.captured_at,
+            'pending_single': window.preview._pending_single,
+            'logs': window.logs.toPlainText()[-2000:]}) from error
+    try:
+        spin(application, lambda: window.simulations.client(serial).state()["screen"] == "dashboard" and not window.pending_controls)
+    except AssertionError as error:
+        raise AssertionError({'gestures': gestures, 'pending_controls': list(window.pending_controls),
+            'epoch_before': epoch, 'epoch_after': window.preview._input_epoch,
+            'frame_age': time.monotonic() - window.preview.frame.captured_at,
+            'screen': window.simulations.client(serial).state()['screen'],
+            'logs': window.logs.toPlainText()[-2000:]}) from error
     click(window.recorder_panel, "Stop recording")
     spin(application, lambda: window.recorder_panel.buttons["Insert Python into Monaco"].isEnabled())
     generated = window.recorder_panel.source()
@@ -227,7 +269,9 @@ def main(root, screenshots):
     spin(application, lambda: "tap(" in window.editor.source and "home()" in window.editor.source)
     source = window.editor.source
     window.actions["save"].trigger()
-    assert script.read_text() == source
+    # Compare the actual UTF-8 bytes: read_text() translates Windows CRLF,
+    # whereas Monaco legitimately returns its model's native line endings.
+    assert script.read_bytes().decode("utf-8") == source
     checks["recorded_python"] = True
 
     # Persist a once-only schedule via TaskDialog and approve its exact snapshot.
@@ -279,7 +323,7 @@ def main(root, screenshots):
     click(window.project_panel, "Import / restore ZIP…")
     restored = root / "restored-workflow"
     spin(application, lambda: window.project_root == restored and not window.project_panel.busy)
-    assert (restored / "scripts" / "main.py").read_text() == source
+    assert (restored / "scripts" / "main.py").read_bytes().decode("utf-8") == source
     assert (restored / "images" / "start.png").read_bytes() == (managed / "images" / "start.png").read_bytes()
     assert (restored / "recordings" / "workflow.json").exists()
     checks["archive_restore"] = True

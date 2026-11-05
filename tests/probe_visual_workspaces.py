@@ -147,7 +147,9 @@ def main():
     spin(app, lambda: not window.jobs)
 
     # Test a previously saved library template against a new original capture.
-    target = directory / "images" / 'target " téléphone.png'
+    # Apostrophes exercise literal escaping and Unicode on both platforms;
+    # double quotes are forbidden in actual Windows filenames.
+    target = directory / "images" / "target ' téléphone.png"
     assert window.adb.image.copy(13, 24, 17, 19).save(str(target), "PNG")
     window.refresh_assets()
     spin(app, lambda: window.visual_tools.assets.count() == 1)

@@ -1,0 +1,10 @@
+{
+  "start_menu_shortcut": true,
+  "per_user": true,
+  "project_preserved": true,
+  "same_version_upgrade": true,
+  "different_version_upgrade": "NOT VERIFIED",
+  "signed": false,
+  "elevated_install_required": false,
+  "passed": true
+}

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import (QFormLayout, QGroupBox, QHBoxLayout,
+from PySide6.QtWidgets import (QFormLayout, QGridLayout, QGroupBox, QHBoxLayout,
                               QLabel, QMenu, QPushButton, QScrollArea, QSpinBox, QToolButton,
                               QSizePolicy, QVBoxLayout, QWidget)
 
@@ -72,12 +72,15 @@ class LivePanel(QWidget):
         self.geometry_label = label("Original resolution: awaiting a frame")
         self.geometry_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         layout.addWidget(self.geometry_label)
-        android = QHBoxLayout()
+        # Native Windows font metrics can make a row of Android controls wider
+        # than the narrow preview slot. Each action gets the full pane width.
+        android = QGridLayout()
         self.back_button = button("Back", self.back_requested.emit)
         self.home_button = button("Home", self.home_requested.emit)
         self.capture_button = button("Capture", self.capture_requested.emit)
-        for widget in (self.back_button, self.home_button, self.capture_button):
-            android.addWidget(widget)
+        android.addWidget(self.back_button, 0, 0)
+        android.addWidget(self.home_button, 1, 0)
+        android.addWidget(self.capture_button, 2, 0)
         layout.addLayout(android)
         content = QWidget()
         contents = QVBoxLayout(content)

@@ -1,0 +1,55 @@
+{
+  "schema": 1,
+  "derived_from": "Native runner checksums, payload inventories and frozen smoke reports; not a binary archive",
+  "source_commit": "1e14932ea47bf174096fd62eda7a29e805c681c7",
+  "workflow_run": "https://github.com/MD7-1337/Bot_Frm/actions/runs/41303947753",
+  "application_version": "0.2.0 Alpha",
+  "binaries_downloadable": false,
+  "windows_executable": {
+    "path": "AndroidAutomationStudio.exe",
+    "bytes": 5060234,
+    "sha256": "caea8139f52a10bc4146bdcaf58fe11c1fbc99f9231a0e3f384708694673a0f7"
+  },
+  "artifacts": [
+    {
+      "platform": "windows-x64",
+      "architecture": "x86-64",
+      "filename": "AndroidAutomationStudio-windows-x64-portable.zip",
+      "sha256": "6cd1ca4733e97d29bdcc92323619e6f8f740e1efe3582cb517a1ec2dccd42d52",
+      "source_commit": "1e14932ea47bf174096fd62eda7a29e805c681c7",
+      "workflow_run": "https://github.com/MD7-1337/Bot_Frm/actions/runs/41303947753",
+      "binary_uploaded": false,
+      "redistribution_approved": false
+    },
+    {
+      "platform": "windows-x64",
+      "architecture": "x86-64",
+      "filename": "AndroidAutomationStudio-windows-x64-setup.exe",
+      "sha256": "d492f560b5f288b6346eb3221b17d731ba983a28ab78386c3362c0f76bb397b6",
+      "source_commit": "1e14932ea47bf174096fd62eda7a29e805c681c7",
+      "workflow_run": "https://github.com/MD7-1337/Bot_Frm/actions/runs/41303947753",
+      "binary_uploaded": false,
+      "redistribution_approved": false
+    },
+    {
+      "platform": "ubuntu-x86_64",
+      "architecture": "x86-64",
+      "filename": "AndroidAutomationStudio-ubuntu-x86_64.tar.gz",
+      "sha256": "9ed96cd8e4b9ff0751ec2b265b50d23fd654a632f6c36b194d1a3009bf8644e8",
+      "source_commit": "1e14932ea47bf174096fd62eda7a29e805c681c7",
+      "workflow_run": "https://github.com/MD7-1337/Bot_Frm/actions/runs/41303947753",
+      "binary_uploaded": false,
+      "redistribution_approved": false
+    }
+  ],
+  "payloads": {
+    "windows": {
+      "files": 1257,
+      "unexpected_gpl_qt_paths": []
+    },
+    "ubuntu": {
+      "files": 1467,
+      "unexpected_gpl_qt_paths": []
+    }
+  }
+}

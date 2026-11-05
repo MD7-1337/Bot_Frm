@@ -48,6 +48,7 @@ def main(root, screenshots=None):
     QTest.mouseClick(control, Qt.MouseButton.LeftButton)
     wizard = window._connection_wizard
     assert wizard.isVisible() and not wizard.isModal() and not wizard.discovery_page.isComplete()
+    assert window.adb.executable in wizard.adb_status.text()
 
     device = window.registry.update([DeviceInfo("FIXTURE-USB", "device", "TEST FIXTURE - no hardware")])[0]
     item = QListWidgetItem(window.device_manager.caption(device))

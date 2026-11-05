@@ -19,6 +19,12 @@ def project(tmp_path):
 def archive(path, entries):
     with zipfile.ZipFile(path, "w") as output:
         for name, payload in entries:
+            # Preserve attacker-supplied ZIP names: ZipInfo's constructor
+            # rewrites backslashes on Windows before the reader can inspect them.
+            if isinstance(name, str):
+                info = zipfile.ZipInfo()
+                info.filename = name
+                name = info
             output.writestr(name, payload)
     return path
 
@@ -174,7 +180,7 @@ def test_failed_duplicate_metadata_write_leaves_no_partial_destination(project, 
     assert ProjectStore.open(project.root).metadata["name"] == "A project"
 
 
-@pytest.mark.parametrize("unsafe", ["../escape.py", "/absolute.py", "scripts/../../escape.py", "scripts\\escape.py", "scripts/C:ads.py", "scripts/CON.py", "scripts/trailing. ", "scripts//twice.py", "./scripts/odd.py"])
+@pytest.mark.parametrize("unsafe", ["../escape.py", "/absolute.py", "scripts/../../escape.py", "scripts\\escape.py", "scripts/C:ads.py", "scripts/CON.py", "scripts/trailing. ", "scripts//twice.py", "./scripts/odd.py", "C:/escape.py", "C:escape.py", "//server/share.py", "\\\\server\\share.py", "scripts/../escape.py", "scripts/escape.py\x00hidden"])
 def test_archive_rejects_unsafe_portable_paths(project, tmp_path, unsafe):
     path = archive(tmp_path / "evil.zip", [(MANIFEST, (project.root / MANIFEST).read_bytes()), (unsafe, b"untrusted")])
     destination = tmp_path / "imported"

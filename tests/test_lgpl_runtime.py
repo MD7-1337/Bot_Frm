@@ -72,3 +72,34 @@ def test_windows_import_libraries_use_genuine_msvc_layout_without_changing_dlls(
     (tmp_path / "lib/avcodec.lib").write_bytes(b"unexpected other toolchain")
     with pytest.raises(RuntimeError, match="overwrite"):
         builder.prepare_windows_import_libraries(tmp_path)
+
+
+def test_archive_version_metadata_is_pinned_and_recorded_without_replacing_conflicts(tmp_path):
+    (tmp_path / "RELEASE").write_text("7.1\n")
+    metadata = builder.prepare_version_metadata(tmp_path)
+    assert metadata["path"] == "VERSION" and metadata["content"] == "7.1\n"
+    assert (tmp_path / "VERSION").read_text() == "7.1\n"
+    (tmp_path / "VERSION").write_text("unknown-other-build\n")
+    with pytest.raises(ValueError, match="conflicting"):
+        builder.prepare_version_metadata(tmp_path)
+    assert (tmp_path / "VERSION").read_text() == "unknown-other-build\n"
+    (tmp_path / "RELEASE").write_text("7.2\n")
+    with pytest.raises(ValueError, match="RELEASE"):
+        builder.prepare_version_metadata(tmp_path)
+
+
+def test_runtime_versions_require_every_exact_library_version_and_source_release():
+    report = {"pyav": "14.2.0", "ffmpeg_version": "7.1",
+              "library_versions": builder.FFMPEG_LIBRARY_VERSIONS.copy()}
+    builder.require_runtime_versions(report)
+    for key, value in (("ffmpeg_version", "git-2026-11-01-application"), ("pyav", "14.2.1")):
+        with pytest.raises(ValueError, match="exact verified"):
+            builder.require_runtime_versions({**report, key: value})
+    for name, version in builder.FFMPEG_LIBRARY_VERSIONS.items():
+        changed = {**report["library_versions"], name: [version[0], version[1], version[2] + 1]}
+        with pytest.raises(ValueError, match="exact verified"):
+            builder.require_runtime_versions({**report, "library_versions": changed})
+        missing = report["library_versions"].copy()
+        missing.pop(name)
+        with pytest.raises(ValueError, match="exact verified"):
+            builder.require_runtime_versions({**report, "library_versions": missing})

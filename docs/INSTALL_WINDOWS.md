@@ -6,16 +6,28 @@ not need Python, Node.js or a source checkout. Source version is 0.2.0 Alpha;
 inspect [RELEASE_VALIDATION.md](RELEASE_VALIDATION.md) for the actual artifacts
 and platform results. A build recipe is not evidence that a Windows binary exists.
 
-## Download and launch
+## Current download status
+
+**Application downloads are blocked pending licensing clearance.** Native CI has
+built and smoke-tested a real unsigned Windows EXE, ZIP and installer. Artifacts
+named `validation-*` or `source-tests-*` contain evidence, not the application.
+See [current validation](RELEASE_VALIDATION.md) for the exact source acceptance
+status and remaining license obligations. No approved Windows binary download is
+currently offered.
+
+For a personal Windows-native build and first hands-on test, follow
+[FIRST_WINDOWS_ALPHA_TEST.md](FIRST_WINDOWS_ALPHA_TEST.md).
+
+## Download and launch after clearance
 
 1. Open [the cross-platform workflow](https://github.com/MD7-1337/Bot_Frm/actions/workflows/cross-platform-alpha.yml)
-   and choose the run for `feat/cross-platform-alpha-release` and the desired
+   and choose the run for `recovery/continue-alpha-2026-11-01` and the desired
    commit. Read its Windows job and source/packaged validation evidence.
 2. Download `AndroidAutomationStudio-windows-x64-<commit>` from that run.
    GitHub normally requires signing in for Actions artifact downloads. These are
    expiring developer-review artifacts, not an automatically published stable
-   release. A failed source gate can still leave a smoke-verified developer
-   package; read the accompanying validation artifact before testing it.
+   release. Publication requires passing source and redistribution gates. Do not treat
+   validation-only artifacts as an application download.
 3. Extract the outer Actions artifact. Check the inner
    `AndroidAutomationStudio-windows-x64-portable.zip` against its `.zip.sha256`
    sidecar:

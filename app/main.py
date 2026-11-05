@@ -55,7 +55,9 @@ def diagnostics() -> dict:
             "projects": "versioned manifest; atomic metadata; search; guarded backup/export/import; no automatic execution",
             "connection_diagnostics": "staged ADB/query/screenshot/video checks; physical device required for final stages",
             "template_scales": "explicit 1–16 values in [0.1, 4]; default 1.0",
-            "windows_release": "not built"}
+            "windows_release": ("frozen Windows Alpha developer build"
+                                if getattr(sys, "frozen", False) and sys.platform == "win32"
+                                else "not a Windows frozen process")}
 
 
 def main() -> int:

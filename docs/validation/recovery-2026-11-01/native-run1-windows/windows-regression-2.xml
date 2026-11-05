@@ -1,0 +1,1 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites><testsuite name="pytest" errors="0" failures="0" skipped="0" tests="1" time="2.865" timestamp="2026-11-01T11:05:06.824718+00:00" hostname="runnervmnjgfq"><testcase classname="tests.test_device_workbench" name="test_multidevice_video_control_capture_editor_and_disconnect" time="2.822" /></testsuite></testsuites>

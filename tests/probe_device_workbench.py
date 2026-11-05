@@ -128,6 +128,9 @@ def main():
     window.refresh_devices()
     spin(app, lambda: window.devices.count() == 2 and not window.jobs)
     assert window.selected_serial() == "fixture-one"
+    window._sync_controls()
+    assert "ADB Ready · 2 accessible" in window.device_manager.system_status.text()
+    assert "Effective adb:" in window.device_manager.system_status.text()
     window.start_all_live()
     window._update_live_frames()
     assert window.preview.frame.serial == "fixture-one"
@@ -167,7 +170,9 @@ def main():
     def has_reference():
         for node in ast.parse(window.editor.source).body:
             if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name) and node.targets[0].id == "image_path":
-                return ast.literal_eval(node.value) == saved.as_posix()
+                # Absolute references use native separators on Windows. Verify
+                # the parsed Python literal resolves to the saved image.
+                return Path(ast.literal_eval(node.value)).resolve() == saved.resolve()
         return False
     spin(app, has_reference)
     ast.parse(window.editor.source)
@@ -196,11 +201,23 @@ def main():
     app.processEvents()
     assert window.adb.actions == before
 
+    def failed_discovery():
+        raise RuntimeError("fixture ADB launch failed")
+    window.adb.devices = failed_discovery
+    window.refresh_devices()
+    spin(app, lambda: not window.discover_pending)
+    assert window.registry.get("fixture-two").state == "unknown"
+    assert "fixture ADB launch failed" in window.device_manager.connection_status.text()
+    assert "ADB discovery failed" in window.device_manager.summary.text()
+    window._sync_controls()
+    assert "ADB Unavailable" in window.device_manager.system_status.text()
+    assert "Last discovery error: fixture ADB launch failed" in window.device_manager.system_status.text()
+
     window.saved_source = window.editor.source  # Explicit test-only discard policy.
     window.close()
     spin(app, lambda: window._shutdown_complete)
     assert window.streams.closed and window.runtime.close(timeout=0)
-    print(json.dumps({key: True for key in ("two_previews", "serial_control", "capture_monaco", "fresh_match", "disconnect", "cleanup")}))
+    print(json.dumps({key: True for key in ("two_previews", "serial_control", "capture_monaco", "fresh_match", "disconnect", "discovery_error", "cleanup")}))
 
 
 if __name__ == "__main__":

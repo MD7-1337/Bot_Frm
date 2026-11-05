@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="2.305" timestamp="2026-11-01T11:14:25.530676+00:00" hostname="runnervmnjgfq"><testcase classname="tests.test_phase6_gui" name="test_real_demo_controls_recognition_recording_and_worker_journey" time="2.205"><failure message="AssertionError: [4576:2752:1101/111426.719:ERROR:gpu_channel_manager.cc(959)] Failed to create GLES3 context, fallback to GLES2.&#10;  [4576:2752:1101/111426.719:ERROR:gpu_channel_manager.cc(970)] ContextResult::kFatalFailure: Failed to create shared context for virtualization.&#10;  Traceback (most recent call last):&#10;    File &quot;D:\a\Bot_Frm\Bot_Frm\tests\probe_phase6.py&quot;, line 249, in &lt;module&gt;&#10;      if __name__=='__main__':main()&#10;                              ^^^^^^&#10;    File &quot;D:\a\Bot_Frm\Bot_Frm\tests\probe_phase6.py&quot;, line 57, in main&#10;      raise AssertionError({'control': widget.text(), 'geometry': widget.geometry().getRect(),&#10;  AssertionError: {'control': 'Home', 'geometry': (10, 247, 383, 34), 'bottom_right': (1532, 475), 'panel': (0, 0, 403, 553), 'window': (0, 0, 1440, 960)}&#10;  &#10;assert 1 == 0&#10; +  where 1 = CompletedProcess(args=['D:\\a\\Bot_Frm\\Bot_Frm\\.venv\\Scripts\\python.exe', 'D:\\a\\Bot_Frm\\Bot_Frm\\tests\\probe_p...y\': (10, 247, 383, 34), \'bottom_right\': (1532, 475), \'panel\': (0, 0, 403, 553), \'window\': (0, 0, 1440, 960)}\n').returncode">tmp_path = WindowsPath('C:/Users/runneradmin/AppData/Local/Temp/pytest-of-runneradmin/pytest-3/test_real_demo_controls_recogn0')
+
+    @pytest.mark.gui
+    @pytest.mark.skipif(os.environ.get('STUDIO_GUI_TESTS')!='1',reason='Opt-in real Qt/Monaco simulator journey')
+    def test_real_demo_controls_recognition_recording_and_worker_journey(tmp_path):
+        root=Path(__file__).resolve().parents[1]
+        result=subprocess.run([sys.executable,str(root/'tests/probe_phase6.py'),str(tmp_path)],cwd=root,
+                              env=dict(os.environ,STUDIO_DATA_DIR=str(tmp_path/'data'),STUDIO_CONFIG_DIR=str(tmp_path/'settings')),
+                              capture_output=True,text=True,timeout=60)
+&gt;       assert result.returncode==0,result.stdout+result.stderr
+E       AssertionError: [4576:2752:1101/111426.719:ERROR:gpu_channel_manager.cc(959)] Failed to create GLES3 context, fallback to GLES2.
+E         [4576:2752:1101/111426.719:ERROR:gpu_channel_manager.cc(970)] ContextResult::kFatalFailure: Failed to create shared context for virtualization.
+E         Traceback (most recent call last):
+E           File "D:\a\Bot_Frm\Bot_Frm\tests\probe_phase6.py", line 249, in &lt;module&gt;
+E             if __name__=='__main__':main()
+E                                     ^^^^^^
+E           File "D:\a\Bot_Frm\Bot_Frm\tests\probe_phase6.py", line 57, in main
+E             raise AssertionError({'control': widget.text(), 'geometry': widget.geometry().getRect(),
+E         AssertionError: {'control': 'Home', 'geometry': (10, 247, 383, 34), 'bottom_right': (1532, 475), 'panel': (0, 0, 403, 553), 'window': (0, 0, 1440, 960)}
+E         
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['D:\\a\\Bot_Frm\\Bot_Frm\\.venv\\Scripts\\python.exe', 'D:\\a\\Bot_Frm\\Bot_Frm\\tests\\probe_p...y\': (10, 247, 383, 34), \'bottom_right\': (1532, 475), \'panel\': (0, 0, 403, 553), \'window\': (0, 0, 1440, 960)}\n').returncode
+
+tests\test_phase6_gui.py:15: AssertionError</failure></testcase></testsuite></testsuites>

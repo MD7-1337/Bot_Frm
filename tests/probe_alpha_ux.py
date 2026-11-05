@@ -4,6 +4,7 @@ Synthetic phone/screens are labeled; this is never physical Android acceptance.
 """
 from pathlib import Path
 import json
+import os
 import sys
 import threading
 import time
@@ -29,7 +30,16 @@ def click(panel, text):
     assert candidates, f"No visible button: {text}"
     button = next((button for button in candidates if button.isEnabled()), candidates[0])
     assert button.isEnabled(), f"Disabled control: {text}"
-    assert button.visibleRegion().contains(button.rect().center()), f"Clipped control: {text}"
+    if not button.visibleRegion().contains(button.rect().center()):
+        top = button.window()
+        if screenshots := os.environ.get('STUDIO_SCREENSHOT_DIR'):
+            directory = Path(screenshots)
+            directory.mkdir(parents=True, exist_ok=True)
+            top.grab().save(str(directory / f'clipped-{text.replace(" ", "-")}.png'))
+        raise AssertionError(f"Clipped control: {text}; button={button.geometry().getRect()}; "
+                             f"panel={panel.geometry().getRect()}; window={top.rect().getRect()}; "
+                             f"position={button.mapTo(top, button.rect().center()).toTuple()}; "
+                             f"visible={button.visibleRegion().boundingRect().getRect()}")
     QTest.mouseClick(button, Qt.MouseButton.LeftButton)
 
 
@@ -232,7 +242,7 @@ def main():
         script = directory / "scripts/journey.py"
         QFileDialog.getSaveFileName = lambda *a, **k: (str(script), "Python")
         toolbar(window, "save")
-        assert script.read_text(encoding="utf-8") == source
+        assert script.read_bytes().decode("utf-8") == source
         window._sync_controls()
         toolbar(window, "run")
         spin(app, lambda: any(e.get("command") == "tap" for e in events))

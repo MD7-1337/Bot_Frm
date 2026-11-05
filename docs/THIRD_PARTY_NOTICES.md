@@ -1,8 +1,117 @@
 # Release notice and license review
 
-This repository does not currently supply an application LICENSE file. Establish
-the project's distribution license before making a public binary release. Build
-outputs are developer review artifacts, not a claim of distribution clearance.
+This repository does not currently supply an application LICENSE file. The owner
+has chosen MIT for original application code where they hold the necessary rights.
+The application history includes contributions under more than one identity and
+a bot; those rights and the accurate copyright attribution still need review
+before an MIT license file can cover all original code. Build outputs are developer
+review artifacts, not a claim of distribution clearance.
+
+## Recovery review — 2026-11-01
+
+Public binary redistribution remains **BLOCKED**. The owner's MIT direction does
+not itself verify rights to every contribution. In addition,
+the exact deployed Qt/Chromium notices, source correspondence and replacement
+procedure have not yet been verified. A successful build or metadata inventory
+does not clear these requirements.
+
+The builders now generate `windows-payload-inventory.json` or
+`linux-payload-inventory.json` from the actual frozen payload before archiving.
+The package includes the same report as `PAYLOAD_INVENTORY.json`. Every ordinary
+payload file has a SHA-256 and size; contained Linux library aliases record their
+link target. The inventory excludes itself and describes the payload, not the
+outer ZIP/installer. Archive checksums remain separate. This evidence permits
+native-library reconciliation; it is deliberately not a completed license map.
+
+When `STUDIO_LGPL_RUNTIME_DIR` is configured, notice collection now rejects an
+external or incomplete FFmpeg prefix, verifies the repaired wheel hash, compares
+every installed PyAV/FFmpeg native file with that wheel, verifies the included
+FFmpeg/PyAV source archives and build script, and copies their notices and source
+into the frozen package. Previously this copy was documented but not implemented.
+Ordinary developer builds without that environment setting remain possible and
+remain blocked from redistribution. PyInstaller distribution notices and available
+CPython installation license text are also retained. Missing or incomplete
+CPython notices still require resolution for the selected native Python build.
+
+Qt's LGPL route requires more than dynamic DLLs: document the chosen license for
+each deployed module, corresponding source and modifications, replacement or
+relinking instructions, applicable installation information, and recipient rights.
+The one-folder layout leaves native libraries outside the executable, but actual
+replacement with a compatible rebuilt Qt/PySide library has not been tested.
+QtWebEngine also embeds Chromium components with separate licenses. Obtain the
+notices and corresponding sources matching the actual 6.8.3 wheel binaries;
+the rolling online documentation is a reference, not artifact evidence.
+
+Primary review references: [Qt LGPL obligations](https://www.qt.io/development/open-source-lgpl-obligations),
+[Qt 6.8 WebEngine licensing](https://doc.qt.io/qt-6.8/qtwebengine-licensing.html),
+and [Qt for Python 6.8 deployment](https://doc.qt.io/qtforpython-6.8/deployment/index.html).
+The first-party guidance confirms separate third-party obligations; it does not
+certify this application's artifacts.
+
+### Exact installed Qt wheel inspection
+
+The recovery environment's installed Linux wheels are PySide6,
+PySide6-Essentials, PySide6-Addons and shiboken6 **6.8.3**. Searching each installed
+distribution's RECORD for license, licence, notice, copying and copyright file
+names found **no supplied license/notice text files**. Their METADATA declares
+`LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only`; that declaration cannot substitute
+for required license text or Chromium third-party notices. Windows wheels must
+be inspected independently. The collector records an explicit missing-notice
+status and retains each distribution's METADATA, WHEEL and RECORD with hashes.
+
+Direct installed-library queries report Qt **6.8.3**, QtWebEngine **6.8.3** and
+Chromium **122.0.6261.171** on this Linux environment. Builds now save the same
+queries to `THIRD_PARTY_NOTICES/Qt-build-information.json`; no GUI or network is
+started by these queries. Native Windows results must come from its own build.
+
+The official [PySide6 6.8.3 source directory](https://download.qt.io/official_releases/QtForPython/pyside6/PySide6-6.8.3-src/)
+offers `pyside-setup-everywhere-src-6.8.3.tar.xz`.
+The official [Qt 6.8.3 submodule source directory](https://download.qt.io/archive/qt/6.8/6.8.3/submodules/)
+offers `qtwebengine-everywhere-src-6.8.3.tar.xz` (approximately 540 MB), plus
+QtBase, QtDeclarative and other module sources. These are actionable source
+candidates; their existence alone does not prove matching wheel configuration,
+patches or complete corresponding source. Retrieve verified upstream checksums,
+retain the exact source and build information for every deployed module, extract
+and reconcile the third-party notices, then validate replacement. No archive
+download, source correspondence or redistribution clearance is claimed here.
+
+### Unused GPL modules found in native payload
+
+The recovery Ubuntu payload inventory exposed QtCharts, QtDataVisualization and
+QtGraphs libraries and their QML plugins. Their Qt 6.8 documentation identifies
+commercial/GPLv3 licensing, with no LGPL alternative:
+[Charts](https://doc.qt.io/qt-6.8/qtcharts-index.html#licenses),
+[Data Visualization](https://doc.qt.io/qt-6.8/qtdatavisualization-index.html#licenses-and-attributions),
+[Graphs](https://doc.qt.io/qt-6.8/qtgraphs-index.html#licenses-and-attributions).
+This is an additional distribution blocker for those exact artifacts; the
+PySide6 wheel's general license metadata did not identify that payload problem.
+
+PyInstaller 6.12's `hook-PySide6.QtQml.py` calls `collect_qtqml_files()`, which
+recursively collects installed QML plugins. This application's source imports
+Widgets/WebEngineWidgets and no QML/Quick API. The packaging specs therefore
+exclude unused Python QML/Quick bindings to prevent their collection hooks from
+gathering every installed plugin. They do not remove required native Qt libraries:
+normal native dependency scanning remains enabled. Both rebuilt platform payloads
+must be checked for absence of those unused modules and pass their frozen
+workflow; earlier artifacts remain blocked and are not retroactively repaired.
+The post-freeze inventory guard records offending native library/binding paths
+and writes the full evidence report before rejecting a build that reintroduces
+these unused module families. This narrow regression guard does not
+establish clearance for other dependencies or approve redistribution.
+
+A second inspection found `libQt6VirtualKeyboard.so.6`, reached through QtGui's
+automatic collection of `platforminputcontexts/libqtvirtualkeyboardplugin.so`.
+[Qt Virtual Keyboard](https://doc.qt.io/qt-6.8/qtvirtualkeyboard-index.html#licenses-and-attributions)
+also has commercial/GPLv3 licensing. A local QtGui hook now uses PyInstaller's
+normal dependency collector and filters only that optional virtual-keyboard
+plugin before native dependency scanning. The application uses ordinary host
+keyboard input; ibus/fcitx and platform plugins are retained. Its unused Python
+binding is excluded and the post-freeze guard also rejects VirtualKeyboard
+libraries/bindings/plugins. No required native libraries are removed after
+analysis. Other native Qt module names in the pruned Linux inventory were
+compared with the [Qt 6.8 GPL-only module list](https://doc.qt.io/qt-6.8/licensing.html):
+no further listed module family was identified. This name-level comparison does
+not replace third-party notices, linkage review or source correspondence.
 
 `tools/build_windows.py` copies installed distribution license/notice files and
 records package versions under `build/release-notices/`. PyInstaller also collects

@@ -48,6 +48,9 @@ class ConnectionWizard(QWizard):
     diagnose_requested = Signal()
     preview_requested = Signal()
     settings_requested = Signal()
+    health_requested = Signal()
+    compare_adb_requested = Signal()
+    demo_requested = Signal()
     wifi_requested = Signal()
     harmless_test_requested = Signal(str)
 
@@ -68,10 +71,19 @@ class ConnectionWizard(QWizard):
         setup.content.addWidget(label("On Android, open Settings → About phone and tap Build number seven times if Developer options are not already enabled. Then open Developer options → USB debugging. Menu names vary by manufacturer."))
         setup.content.addWidget(label("Keep the phone unlocked and accept its 'Allow USB debugging?' prompt for this computer. Only trust a computer you control."))
         setup.content.addWidget(label("Windows: the phone manufacturer may require an OEM USB driver. Ubuntu: missing udev/group access needs an authorized administrator. This wizard never changes system permissions or bypasses school policy.", "notice"))
+        self.adb_status = label("ADB path has not been checked. Open Settings or run dependency health before connecting a phone.", "notice")
+        self.adb_status.setAccessibleName("Effective ADB path and discovery readiness")
+        self.adb_status.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        setup.content.addWidget(self.adb_status)
         row = QHBoxLayout()
         row.addWidget(button("Choose ADB / check settings", self.settings_requested.emit))
+        row.addWidget(button("Check dependency health", self.health_requested.emit))
+        setup.content.addLayout(row)
+        row = QHBoxLayout()
+        row.addWidget(button("Compare with scrcpy's adb.exe…", self.compare_adb_requested.emit))
         row.addWidget(button("Use Wireless debugging instead", self.wifi_requested.emit))
         setup.content.addLayout(row)
+        setup.content.addWidget(button("Start Demo Mode without a phone", self.demo_requested.emit))
         setup.content.addWidget(label("Android 11+ Wireless debugging uses a pairing port/code followed by a separate connection port. The computer and phone must be on a permitted network. Pairing alone is not a verified usable connection."))
         self.prepared = QCheckBox("I have reviewed these steps and am ready to check discovery")
         self.prepared.toggled.connect(setup.set_complete)
@@ -129,7 +141,9 @@ class ConnectionWizard(QWizard):
             self.preview_status.setText("Home test requested for this exact phone. Inspect the physical phone's response; this request is not an acknowledgment of input success.")
 
     def update_state(self, devices, selected_serial=None, *, report=None,
-                     report_current=False, preview_ready=False, busy=False):
+                     report_current=False, preview_ready=False, busy=False,
+                     adb_path=None, discovery_error=None, discovery_pending=False,
+                     discovery_checked=False):
         """Accept current observations from the host, never infer a reconnect.
 
         ``report_current`` must be false after selection/generation changes.
@@ -137,6 +151,11 @@ class ConnectionWizard(QWizard):
         identity, not an ADB screenshot or simulator frame.
         """
         physical = [device for device in devices if not is_simulation(device.serial)]
+        if adb_path:
+            readiness = ("Checking devices…" if discovery_pending else "Discovery failed" if discovery_error
+                         else "ADB ready; no phone needed for this check" if discovery_checked
+                         else "Discovery not checked yet")
+            self.adb_status.setText(f"Studio ADB: {adb_path}\n{readiness}. Choose a different adb.exe in Settings if standalone scrcpy sees your phone but Studio does not.")
         signature = (selected_serial, tuple((device.serial, device.model, device.state) for device in physical))
         if signature != self._device_signature:
             blocker = QSignalBlocker(self.device_choice)
@@ -153,7 +172,9 @@ class ConnectionWizard(QWizard):
         self._busy = bool(busy)
         self.discovery_page.set_complete(self._authorized)
         self.discovery_status.setText(
-            f"Selected {selected.serial}: {selected.state}. This listing is not yet a verified Android query." if selected
+            f"ADB discovery failed: {' '.join(str(discovery_error).split())[:300]}\nCheck the path above, then run Diagnostics or compare scrcpy's adb.exe." if discovery_error
+            else f"Selected {selected.serial}: {selected.state}. This listing is not yet a verified Android query." if selected
+            else "Checking ADB for phones…" if discovery_pending
             else "No selected physical Android device. Refresh, inspect authorization/driver/permission guidance, then choose the exact identity. Simulated devices are not listed.")
         query_passed = bool(report and any(step.key == "query" and step.state == "passed" for step in report.steps))
         self._verified = bool(self._authorized and report_current and query_passed
