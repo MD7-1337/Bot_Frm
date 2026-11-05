@@ -100,6 +100,35 @@ and diagnose the exact device. Test a screenshot before live video and touch.
 Record all phone results as **NOT VERIFIED** until you actually observe them. The
 full one-phone and two-phone checklist is in [hardware acceptance](HARDWARE_ACCEPTANCE.md).
 
+For the first one-phone pass, use this order and record **PASS**, **FAIL**, or
+**NOT VERIFIED** for each item:
+
+1. Open Studio. The Device Manager status line shows the effective `adb.exe`,
+   ADB readiness, accessible phone count, selected phone state, and last error.
+2. Refresh devices. If scrcpy sees the phone but Studio does not, use the
+   connection wizard's **Compare with scrcpy's adb.exe…** action. Record both
+   versions and redacted device states. Then choose the intended `adb.exe` in
+   Settings and refresh again.
+3. Unlock the phone and accept the USB debugging prompt. Confirm its state is
+   `device`, not `unauthorized` or `offline`.
+4. Run **Diagnose Connection**. Record the first failed stage. Confirm the
+   harmless Android query and original-resolution screenshot pass.
+5. Start live preview. Verify the image changes with the real phone screen;
+   screenshot fallback does not count as live video.
+6. On a harmless test screen, send one tap and one swipe. Confirm both on the
+   phone; an ADB acknowledgment alone does not prove the intended effect.
+7. Run one approved script. Check the correct phone and visible result.
+8. Debug the same script: breakpoint, step, continue, and stop. Confirm source
+   and current line remain correct.
+9. Disconnect and reconnect the phone. Confirm no old script or touch resumes
+   automatically. Refresh and start only explicitly chosen new work.
+10. Close Studio, reopen it, and confirm settings and projects remain present.
+
+If a stage fails, use **Export Bug Report…** and review the JSON before sharing.
+Include the stage number, expected result, actual result, Windows version, and
+whether standalone scrcpy still sees the phone. Never include a pairing code or
+private phone screenshot without reviewing it.
+
 ## Report a bug
 
 Use **Device Manager → Diagnostics → Export Bug Report…**. Review the editable,

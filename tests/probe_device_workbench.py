@@ -128,6 +128,9 @@ def main():
     window.refresh_devices()
     spin(app, lambda: window.devices.count() == 2 and not window.jobs)
     assert window.selected_serial() == "fixture-one"
+    window._sync_controls()
+    assert "ADB Ready · 2 accessible" in window.device_manager.system_status.text()
+    assert "Effective adb:" in window.device_manager.system_status.text()
     window.start_all_live()
     window._update_live_frames()
     assert window.preview.frame.serial == "fixture-one"
@@ -206,6 +209,9 @@ def main():
     assert window.registry.get("fixture-two").state == "unknown"
     assert "fixture ADB launch failed" in window.device_manager.connection_status.text()
     assert "ADB discovery failed" in window.device_manager.summary.text()
+    window._sync_controls()
+    assert "ADB Unavailable" in window.device_manager.system_status.text()
+    assert "Last discovery error: fixture ADB launch failed" in window.device_manager.system_status.text()
 
     window.saved_source = window.editor.source  # Explicit test-only discard policy.
     window.close()

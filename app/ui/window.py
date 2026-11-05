@@ -26,7 +26,7 @@ from app.ui.capture_dialog import CaptureDialog
 from app.ui.execution_panel import ExecutionPanel
 from app.ui.live_panel import LivePanel
 from app.ui.preview import PhonePreview
-from app.ui.device_manager import DeviceManagerPanel
+from app.ui.device_manager import DeviceManagerPanel, connection_overview
 from app.ui.recorder_panel import RecorderPanel
 from app.ui.visual_tools import VisualToolsPanel, load_asset, scan_assets
 from app.ui.design import apply_theme, icon
@@ -143,6 +143,7 @@ class StudioWindow(QMainWindow):
         self._discovery_message = None
         self._discovery_log_state = None
         self._last_discovery_error = None
+        self._discovery_checked = False
         self._library_request = 0
         self._thumbnail_request = 0
         self.recorder = ActionRecorder()
@@ -672,6 +673,8 @@ class StudioWindow(QMainWindow):
             # selecting a path is configuration, never a connection success.
             self.streams.close(timeout=0)
             self.adb = new_adb
+            self._discovery_checked = False
+            self._last_discovery_error = None
             self.capture = CaptureService(new_adb)
             self.streams = StreamManager(new_adb)
             configured = os.environ.get("STUDIO_SCRCPY_SERVER") or values["scrcpy_server_path"]
@@ -698,6 +701,14 @@ class StudioWindow(QMainWindow):
         if not hasattr(self, "shell") or self._closing:
             return
         serial = self.selected_serial()
+        devices = self.registry.snapshot()
+        discovery_state = ("checking" if self.discover_pending else "failed" if self._last_discovery_error
+                           else "ready" if self._discovery_checked else "not checked")
+        self.device_manager.update_system_status(connection_overview(
+            self.adb.executable, discovery_state, devices, self._selected_identity(),
+            demo=bool(self.active_simulation),
+            active_runs=sum(run.exitcode is None for run in self.run_states),
+            last_error=self._last_discovery_error))
         available = bool(serial and self._device_available(serial))
         idle = available and not self.busy(serial)
         can_input = idle and not self._emergency_latched
@@ -796,6 +807,7 @@ class StudioWindow(QMainWindow):
                 # Its reply cannot establish the state of the new ADB server.
                 self.refresh_devices()
                 return
+            self._discovery_checked = True
             failure_message = None
             if error:
                 self.log(error)
@@ -1343,11 +1355,14 @@ class StudioWindow(QMainWindow):
             wizard.diagnose_requested.connect(self.diagnose_connection)
             wizard.preview_requested.connect(self.open_preview)
             wizard.settings_requested.connect(lambda: self.show_workspace("settings"))
+            wizard.health_requested.connect(self.check_health)
+            wizard.compare_adb_requested.connect(self.compare_external_adb)
+            wizard.demo_requested.connect(lambda: (wizard.close(), self.start_demo()))
             wizard.wifi_requested.connect(lambda: self.show_workspace("devices"))
             wizard.harmless_test_requested.connect(self._wizard_home)
-        self._sync_connection_wizard()
         self._connection_wizard.show()
         self._connection_wizard.raise_()
+        self._sync_connection_wizard()
 
     def _show_first_run_wizard(self):
         if self._closing or self.settings.value("first_run_wizard_seen", False, type=bool):
@@ -1380,6 +1395,8 @@ class StudioWindow(QMainWindow):
         live = bool(frame and frame.serial == serial and time.monotonic() - frame.captured_at < 3
                     and self._preview_modes.get(serial) == "live")
         wizard.update_state(self.registry.snapshot(), serial, report=report, report_current=current,
+                            adb_path=self.adb.executable, discovery_error=self._last_discovery_error,
+                            discovery_pending=self.discover_pending, discovery_checked=self._discovery_checked,
                             preview_ready=live, busy=self._diagnostic_busy or self.discover_pending
                             or self._network_pending or self._emergency_latched
                             or bool(serial and self.busy(serial)))

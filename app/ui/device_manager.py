@@ -13,6 +13,22 @@ from app.devices.adb import DeviceInfo, validate_endpoint
 from app.ui.components import button, label, scroll, surface
 
 
+def connection_overview(adb_path, discovery_state, devices, selected_serial,
+                        *, demo=False, active_runs=0, last_error=None):
+    """Summarize observed host state without treating a demo as a real phone."""
+    accessible = sum(device.available for device in devices)
+    authorization = sum(device.state in ("unauthorized", "authorizing") for device in devices)
+    selected = next((device for device in devices if device.serial == selected_serial), None)
+    state = {"checking": "Checking", "ready": "Ready", "failed": "Unavailable",
+             "not checked": "Not checked"}[discovery_state]
+    chosen = (f"{selected.model or selected.serial}: {selected.state}" if selected
+              else "no real phone selected")
+    error = " ".join(str(last_error).split())[:220] if last_error else "none"
+    return (f"ADB {state} · {accessible} accessible · {authorization} awaiting authorization · "
+            f"{active_runs} active runs · {'Demo Mode' if demo else 'Real Mode'}\n"
+            f"Effective adb: {adb_path}\nSelected: {chosen} · Last discovery error: {error}")
+
+
 class DeviceManagerPanel(QWidget):
     refresh_requested = Signal()
     preview_requested = Signal()
@@ -45,6 +61,10 @@ class DeviceManagerPanel(QWidget):
         outer.setContentsMargins(0, 0, 0, 0)
         self.summary = label("Connect your first Android device. USB detection runs automatically.")
         outer.addWidget(self.summary)
+        self.system_status = label("ADB not checked · Effective adb: resolving…", "notice")
+        self.system_status.setAccessibleName("ADB path, phone states and last discovery error")
+        self.system_status.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        outer.addWidget(self.system_status)
         self.connection_status = label("USB: unlock the phone, enable USB debugging and accept this computer. Wi-Fi uses an explicit connection port.", "notice")
         self.connection_status.setAccessibleName("Connection status and next action")
         status_row = QHBoxLayout()
@@ -258,6 +278,10 @@ class DeviceManagerPanel(QWidget):
         self.summary.setText(f"{connected} connected / {len(devices)} known phones. Ctrl-click selects multiple; actions keep exact ADB serials.")
         self.devices.setVisible(bool(devices))
         self.empty_state.setVisible(not devices)
+
+    def update_system_status(self, text):
+        if self.system_status.text() != text:
+            self.system_status.setText(text)
 
     def show_device(self, device: DeviceInfo | None, *, script=None, screen=None):
         labels = self.labels.get(device.serial, {}) if device else {}

@@ -113,6 +113,9 @@ def gui_smoke(*, timeout_ms: int = 60000) -> dict:
 
     try:
         wait(lambda: window.editor.is_ready and not window.jobs, "offline Monaco")
+        window._sync_controls()
+        if window.adb.executable not in window.device_manager.system_status.text():
+            raise RuntimeError("Packaged status view did not show the effective ADB executable")
         from app.support import bug_report
         diagnostic = json.loads(bug_report(adb_path=window.adb.executable, health={"checks": []},
                                            devices=window.registry.snapshot(), log_path=window.event_log_path))
@@ -180,7 +183,7 @@ def gui_smoke(*, timeout_ms: int = 60000) -> dict:
         active_rss = resident_bytes()
         result = {"passed": True, "monaco_ready": True, "window_visible": window.isVisible(),
                   "qt_platform": application.platformName(),
-                  "checks": {key: True for key in ("bug_report", "demo", "recognition", "debug_breakpoint", "debug_variables",
+                  "checks": {key: True for key in ("status_view", "bug_report", "demo", "recognition", "debug_breakpoint", "debug_variables",
                     "debug_step", "recorder", "scheduled_worker", "project_export_restore")},
                   "startup_ms": startup_ms, "idle_parent_rss_bytes": idle_rss,
                   "active_parent_rss_bytes": active_rss, "heartbeat_samples": len(heartbeat),
