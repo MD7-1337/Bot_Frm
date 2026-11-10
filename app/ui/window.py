@@ -414,6 +414,14 @@ class StudioWindow(QMainWindow):
         self._action(devices_menu, "Reset Demo", self.reset_demo)
         self._action(devices_menu, "Refresh devices", self.refresh_devices)
         self._action(devices_menu, "Diagnose Connection", self.diagnose_connection)
+        # The Stitch layout hides the former LivePanel transport buttons.
+        # Keep an explicit, discoverable way to start or stop REAL scrcpy
+        # streaming without adding an unapproved sixth main-toolbar button.
+        # "Start" on the main toolbar always means "run Python script".
+        self.actions["start_live_preview"] = self._action(
+            devices_menu, "Start live phone preview", self.start_live)
+        self.actions["stop_live_preview"] = self._action(
+            devices_menu, "Stop live phone preview", self.stop_live)
         self.actions["capture"] = self._action(devices_menu, "Capture image region…", self.capture_region, "Ctrl+Shift+C")
         self.actions["capture_png"] = self._action(devices_menu, "Capture PNG…", self.save_capture)
         self.actions["home"] = self._action(devices_menu, "Home", lambda: self._key("HOME"))
