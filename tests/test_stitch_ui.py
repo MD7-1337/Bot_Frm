@@ -10,6 +10,9 @@ from PySide6.QtWidgets import QApplication
 
 from app.ui.capture_dialog import CaptureDialog
 from app.ui.coordinate_inspector import CoordinateInspector
+from app.ui.window import StudioWindow
+from app.streaming.manager import StreamStatus
+from app.streaming.session import VideoFrame
 from app.vision.matching import Region
 
 pytestmark = pytest.mark.skipif(os.environ.get("STUDIO_GUI_TESTS") != "1", reason="Requires an isolated Qt GUI run")
@@ -118,3 +121,24 @@ def test_matching_uses_selected_original_or_fresh_frame(tmp_path: Path):
     await_result()
     assert captures == [True]
     dialog.close()
+
+
+def test_live_selected_frame_skips_hidden_duplicate_and_keeps_latest(monkeypatch):
+    app = _app()
+    window = StudioWindow(discover=False)
+    window.show()
+    app.processEvents()
+    monkeypatch.setattr(window, "selected_serial", lambda: "device")
+    monkeypatch.setattr(window, "_device_available", lambda serial: True)
+    monkeypatch.setattr(window, "_refresh_device_details", lambda: None)
+    window._preview_modes["device"] = "live"
+    frames = [VideoFrame("device", bytes([20, 30, 40]) * 1200, 40, 30,
+                         40, 30, time.monotonic(), sequence) for sequence in (1, 2)]
+    monkeypatch.setattr(window.streams, "statuses", lambda: {"device": StreamStatus("streaming", None, 2)})
+    monkeypatch.setattr(window.streams, "latest", lambda serial: frames[-1])
+    window._update_live_frames()
+    assert window.preview.frame is frames[-1]
+    assert window.live_panel.tiles == {}
+    window._update_live_frames()
+    assert window.preview.frame is frames[-1]
+    window.close()

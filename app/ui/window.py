@@ -157,7 +157,6 @@ class StudioWindow(QMainWindow):
         self.editor = EditorWidget()
         self.project_label = QLabel(f"Project: {self.project_root}")
         self.project_label.setToolTip("Images resolve from this project's images directory and contained script paths.")
-        self.statusBar().addPermanentWidget(self.project_label)
         self.devices = QListWidget()
         self.devices.setAccessibleName("Connected Android devices")
         self.devices.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
@@ -293,7 +292,7 @@ class StudioWindow(QMainWindow):
         self.device_manager.settings_requested.connect(lambda: self.show_workspace("settings"))
         self.editor.set_project_root(self.project_root)
         self.refresh_assets()
-        self.editor.set_text('# Choose your phone in the selector above.\nprint(getDevice())\n# Capture a target in Visual Tools, then:\n# click("start.png")\n')
+        self.editor.set_text('# Choose your phone in the selector above.\nprint(getDevice())\n# Capture an image with Screenshot, then click("start.png")\n')
         self.saved_source = self.editor.source
         geometry = self.settings.value("geometry")
         if geometry:
@@ -329,8 +328,6 @@ class StudioWindow(QMainWindow):
             self.discovery_timer.start(integer(self.settings, "discovery_seconds", 3, 1, 15) * 1000)
             if not self.settings.value("first_run_wizard_seen", False, type=bool):
                 QTimer.singleShot(600, self._show_first_run_wizard)
-        self.log("Scripting engine: project image targets, isolated device contexts, cancellable waits and pause/resume.")
-        self.log("Debugger, tasks, project archives and optional OCR are available. Real-phone and Windows acceptance remain NOT VERIFIED.")
         if discover:
             QTimer.singleShot(0, self.refresh_devices)
 
@@ -386,12 +383,6 @@ class StudioWindow(QMainWindow):
 
     def _build_actions(self):
         self.actions = {}
-        workspace_menu = self.menuBar().addMenu("&Workspaces")
-        for index, (label, key) in enumerate((("Script Studio", "studio"), ("Device Manager", "devices"),
-                 ("Screenshot & Visual Tools", "visual"), ("Action Recorder", "recorder"),
-                 ("Activity & Logs", "monitor"), ("Task Manager", "tasks"), ("Settings", "settings"),
-                 ("Debugger", "debugger"), ("Projects", "projects")), 1):
-            self.actions[key] = self._action(workspace_menu, label, lambda checked=False, name=key: self.show_workspace(name), f"Ctrl+{index}")
         file_menu = self.menuBar().addMenu("&File")
         self.actions["new"] = self._action(file_menu, "New Python script", self.new_script, QKeySequence.StandardKey.New)
         self.actions["open"] = self._action(file_menu, "Open Python script…", self.open_script, QKeySequence.StandardKey.Open)
@@ -402,6 +393,7 @@ class StudioWindow(QMainWindow):
         self.run_action = self._action(execution_menu, "Run trusted script…", self.run_script, "F5")
         self.actions["run"] = self.run_action
         self.actions["debug"] = self._action(execution_menu, "Debug trusted script…", self.debug_script, "F9")
+        self.actions["debug"].setVisible(False)
         self.actions["pause"] = self._action(execution_menu, "Pause run", lambda: self._control_run("pause"), "F6")
         self.actions["resume"] = self._action(execution_menu, "Resume run", lambda: self._control_run("resume"), "Shift+F6")
         self.actions["stop"] = self._action(execution_menu, "Stop run", lambda: self._control_run("cancel"), "Shift+F5")
@@ -445,7 +437,9 @@ class StudioWindow(QMainWindow):
         toolbar.setObjectName("contextToolbarV2")
         toolbar.setMovable(False)
         toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.addToolBar(toolbar)
+        # File and run actions retain shortcuts; the Stitch header is the only
+        # visible toolbar.
+        toolbar.hide()
         for key, glyph in (("new", "add"), ("open", "folder"), ("save", "studio"),
                            ("run", "run"), ("pause", "pause"), ("resume", "run"),
                            ("stop", "stop"), ("capture", "visual")):
@@ -760,8 +754,7 @@ class StudioWindow(QMainWindow):
         self.shell.screenshot_button.setEnabled(self.actions["capture"].isEnabled())
         self.reset_stop_action.setVisible(self._emergency_latched)
         self.shell.sync_devices()
-        self.shell.welcome.setVisible(not any(device.available for device in self.registry.snapshot())
-                                      and not any(info.available for info in self.simulations.snapshot()))
+        self.shell.welcome.hide()
         self.live_panel.set_control_state(available, can_input, self.streams.status(serial).state if serial else "stopped")
         self.live_panel.start_all_action.setEnabled(any(device.available for device in self.registry.snapshot()))
         self.recorder_panel.set_control_state(can_input, self.recorder.state)
@@ -1665,13 +1658,8 @@ class StudioWindow(QMainWindow):
             self.streams.start(serial, self.live_panel.options())
             self._preview_modes[serial] = "live"
             self._stream_sequences.pop(serial, None)
-            view = self.live_panel.tile(serial)
-            if not view.property("controlsConnected"):
-                view.gesture.connect(lambda start, end, ms, device=serial, widget=view: self._gesture_on(device, widget, start, end, ms))
-                view.double_tap.connect(lambda x, y, device=serial, widget=view: self._double_tap(device, widget, x, y))
-                view.coordinate.connect(lambda x, y, device=serial: self.statusBar().showMessage(f"{device} · Android {x}, {y}"))
-                view.setProperty("controlsConnected", True)
-            view.clear()
+            # The approved layout has one viewer. Do not allocate or repaint a
+            # second hidden PhonePreview for the same selected stream.
             if serial == self.selected_serial():
                 self.preview.clear()
         except Exception as error:
@@ -1718,9 +1706,9 @@ class StudioWindow(QMainWindow):
                 text += f" · {state.error}"
             self.live_panel.update_status(serial, text, selected)
             if self._stream_states.get(serial) != text:
-                self.log(f"{serial}: {text}")
+                self.live_panel.status.setText(text if serial == selected else self.live_panel.status.text())
                 if self.event_log:
-                    self.event_log.info("Video state changed: %s", state.state)
+                    self.event_log.info("Video state changed: %s: %s", state.state, state.error or "")
                 self._stream_states[serial] = text
                 if state.state in ("failed", "stopped") and self._preview_modes.get(serial) == "live":
                     if serial in self.live_panel.tiles:
@@ -1730,18 +1718,10 @@ class StudioWindow(QMainWindow):
             frame = self.streams.latest(serial)
             if frame is None or not self._device_available(serial) or self._preview_modes.get(serial) != "live":
                 continue
-            tile = self.live_panel.tile(serial)
-            if self._stream_sequences.get(serial) != frame.sequence:
-                try:
-                    tile.set_video_frame(frame)
-                    self._stream_sequences[serial] = frame.sequence
-                except ValueError as error:
-                    self.streams.stop(serial)
-                    self.log(str(error))
-                    continue
-            if serial == selected and self.preview.frame is not frame:
+            if serial == selected and self.preview.isVisible() and self.preview.frame is not frame:
                 try:
                     self.preview.set_video_frame(frame)
+                    self._stream_sequences[serial] = frame.sequence
                     info = ScreenInfo(frame.source_width, frame.source_height, frame.orientation) if frame.source_width and frame.source_height else None
                     if info is not None and self._screen_info.get(serial) != info:
                         self._screen_info[serial] = info
@@ -2354,14 +2334,22 @@ class StudioWindow(QMainWindow):
             self._manual_cancel = threading.Event()
             self.run_action.setEnabled(True)
             self.reset_stop_action.setEnabled(False)
-        if event.get("event") == "output":
-            self.log(f"[{event.get('serial')} / {Path(event.get('script_id', '')).name}] {event.get('text', '').rstrip()}")
-        elif event.get("event") == "error":
-            self.log(f"[{event.get('serial')}] {event.get('error_type')}: {event.get('message')}\n{event.get('traceback', '')}")
-            if failure := event.get("failure"):
-                self.log(f"{failure['category']} · {failure['advice']}")
-        else:
-            self.log(json.dumps(event, ensure_ascii=False))
+        # Keep structured events in ExecutionPanel and the application log.
+        # The default console is exclusively readable script output.
+        kind = event.get("event")
+        if kind == "request" and event.get("command") == "start":
+            self.logs.appendPlainText("Script started")
+        elif kind == "output":
+            self.logs.appendPlainText(str(event.get("text", "")).rstrip("\n"))
+        elif kind == "error":
+            location = ""
+            if event.get("source_line"):
+                location = f" ({Path(event.get('source_path') or '<editor>').name}:{event['source_line']})"
+            self.logs.appendPlainText(f"{event.get('error_type', 'Error')}: {event.get('message', '')}{location}")
+        elif kind == "status" and event.get("state") in ("completed", "cancelled", "failed"):
+            self.logs.appendPlainText("Script " + event["state"])
+        elif kind == "request_error" and event.get("command") == "start":
+            self.logs.appendPlainText("Could not start script: " + str(event.get("message", "Unknown error")))
 
     def inspect_run_failure(self, run_id):
         event = self.execution_panel.failures.get(run_id)

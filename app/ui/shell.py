@@ -66,7 +66,9 @@ class WorkspaceShell(QWidget):
         sidebar.addWidget(self.collapse)
         self.local_label = label("LOCAL WORKSPACE", "eyebrow")
         sidebar.addWidget(self.local_label)
-        layout.addWidget(self.sidebar)
+        # The approved studio is one editor and one phone; legacy workspace
+        # widgets stay owned by the window for compatibility, without navigation.
+        self.sidebar.hide()
         main = QVBoxLayout()
         main.setContentsMargins(0, 0, 0, 0)
         main.setSpacing(0)
@@ -97,8 +99,10 @@ class WorkspaceShell(QWidget):
         self.device_selector.setToolTip("All manual actions target this exact ADB serial.")
         self.device_selector.currentIndexChanged.connect(self._select_device)
         header.addWidget(self.device_selector)
-        self.settings_button = button("Settings", lambda: window.show_workspace("settings"))
+        self.settings_button = button("", lambda: window.show_workspace("settings"))
         self.settings_button.setIcon(icon("settings", "#d4af37"))
+        self.settings_button.setToolTip("Settings")
+        self.settings_button.setAccessibleName("Settings")
         header.addWidget(self.settings_button)
         main.addWidget(self.stitch_header)
         titles = QVBoxLayout()
@@ -132,6 +136,8 @@ class WorkspaceShell(QWidget):
         self.pages, self.preview_slots, self.execution_slots = {}, {}, {}
         self.splitters = {}
         self.project = ProjectExplorer(window)
+        self.project.setParent(self)
+        self.project.hide()
         self.documents = ScriptTabs(window)
         # Monaco reflows to its viewport. Its preferred width (and long tab
         # names) must not force the splitter wider than the visible workspace,
@@ -151,12 +157,11 @@ class WorkspaceShell(QWidget):
         studio_layout.addWidget(self.welcome)
         self.welcome.hide()
         split = QSplitter()
-        split.addWidget(self.project)
         split.addWidget(self.documents)
         self.preview_slots["studio"] = self.slot()
         split.addWidget(self.preview_slots["studio"])
-        split.setSizes([210, 620, 620])
-        split.setStretchFactor(1, 1)
+        split.setSizes([700, 680])
+        split.setStretchFactor(0, 1)
         self.splitters["studio_horizontal"] = split
         self.studio_split = split
         vertical = QSplitter(Qt.Orientation.Vertical)
@@ -175,9 +180,9 @@ class WorkspaceShell(QWidget):
         vertical.setStretchFactor(0, 1)
         self.splitters["studio_vertical"] = vertical
         studio_layout.addWidget(vertical, stretch=1)
+        self.welcome.hide()
         self._page("studio", studio)
-        for key, widget in (("devices", window.docks["devices"]), ("visual", window.docks["visual"]),
-                            ("recorder", window.docks["recorder"])):
+        for key, widget in (("devices", window.docks["devices"]),):
             split = QSplitter()
             split.setChildrenCollapsible(False)
             split.addWidget(widget)
@@ -205,7 +210,6 @@ class WorkspaceShell(QWidget):
         monitor_layout.addWidget(self.monitor_tabs, stretch=1)
         self._page("monitor", monitor)
         self._page("tasks", window.task_panel)
-        self._page("projects", window.project_panel)
         debug = QSplitter(Qt.Orientation.Vertical)
         self.debug_editor_slot = self.slot()
         debug.addWidget(self.debug_editor_slot)
@@ -213,13 +217,19 @@ class WorkspaceShell(QWidget):
         debug.setSizes([480, 300])
         debug.setStretchFactor(0, 1)
         self.splitters["debugger_vertical"] = debug
-        self._page("debugger", debug)
+        # Backend panels remain alive for existing services, but are not pages.
         self.settings_panel = SettingsPanel(window.settings)
         self.settings_panel.apply_requested.connect(window.apply_settings)
         self._page("settings", self.settings_panel)
         main.addWidget(self.stack, stretch=1)
         layout.addLayout(main, stretch=1)
         self.switch("studio")
+        for name in ("visual", "recorder"):
+            window.docks[name].hide()
+            window.docks[name].setParent(None)
+            window.docks[name].setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
+        self.project.hide()
+        self.welcome.hide()
         self.project.refresh()
         for name, splitter in self.splitters.items():
             saved = window.settings.value("workspace_v2/" + name)
@@ -292,8 +302,8 @@ class WorkspaceShell(QWidget):
         # header toggle shows either the tools or the preview at full width.
         for key in ("devices", "visual", "recorder"):
             self.window.docks[key].setVisible(not compact or not self.preview_on_small)
-        self.sidebar.show()
-        self.project.setVisible(self.current == "studio" and self.width() >= 1100)
+        self.sidebar.hide()
+        self.project.hide()
         self.preview_slots["studio"].show()
         self.preview_toggle.setVisible(compact and self.current in ("devices", "visual", "recorder"))
         self.preview_toggle.setText("Back to tools" if compact and self.preview_on_small and self.current in ("devices", "visual", "recorder") else "Preview")
@@ -346,7 +356,7 @@ class WorkspaceShell(QWidget):
             self.window.settings.setValue("workspace_v2/" + name, splitter.saveState())
 
     def reset(self):
-        self.splitters["studio_horizontal"].setSizes([210, 620, 620])
+        self.splitters["studio_horizontal"].setSizes([700, 680])
         self.splitters["studio_vertical"].setSizes([680, 130])
         for key in ("devices", "visual", "recorder"):
             self.splitters[key].setSizes([900, 300])
