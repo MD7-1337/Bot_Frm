@@ -300,8 +300,10 @@ class WorkspaceShell(QWidget):
             slot.setVisible(not compact or self.preview_on_small)
         # Dense tool forms and a phone cannot both fit a compact pane. The
         # header toggle shows either the tools or the preview at full width.
-        for key in ("devices", "visual", "recorder"):
-            self.window.docks[key].setVisible(not compact or not self.preview_on_small)
+        # Only the Device Manager remains a visible secondary workspace.
+        # Detached legacy Visual Tools/Recorder docks must not be re-shown
+        # during a resize; they have no visible page in the approved design.
+        self.window.docks["devices"].setVisible(not compact or not self.preview_on_small)
         self.sidebar.hide()
         self.project.hide()
         self.preview_slots["studio"].show()
@@ -358,8 +360,9 @@ class WorkspaceShell(QWidget):
     def reset(self):
         self.splitters["studio_horizontal"].setSizes([700, 680])
         self.splitters["studio_vertical"].setSizes([680, 130])
-        for key in ("devices", "visual", "recorder"):
-            self.splitters[key].setSizes([900, 300])
+        # The removed Visual Tools and Recorder pages no longer own splitters.
+        # Reset only the layouts actually installed in this UI.
+        self.splitters["devices"].setSizes([900, 300])
         self.switch("studio")
 
     def toggle_console(self):
