@@ -214,7 +214,12 @@ def main():
             window.resize(width,height);QTest.qWait(120)
             assert window.width()<=width,(width,window.width())
             for name in ('studio','devices','visual','recorder','settings'):
-                navigation(window,name)
+                if name == 'settings':
+                    QTest.mouseClick(window.shell.nav[name],Qt.MouseButton.LeftButton)
+                    assert window._settings_dialog.isVisible()
+                    window._settings_dialog.reject()
+                else:
+                    navigation(window,name)
                 assert window.shell.emergency.visibleRegion().contains(window.shell.emergency.rect().center())
                 if width==1024 and name=='recorder':
                     assert window.docks['recorder'].isVisible()
@@ -225,11 +230,15 @@ def main():
                 if screenshots and width==1024 and name in ('devices','recorder'):
                     window.grab().save(str(screenshots/f'phase6-{name}-compact.png'))
         window.resize(1440,960)
-        navigation(window,'settings'); window.shell.settings_panel.theme.setCurrentText('light')
-        click(window.shell.settings_panel,'Apply settings')
+        window.show_settings(); assert window._settings_dialog.isVisible()
+        window.shell.settings_panel.theme.setCurrentText('light')
+        click(window.shell.settings_panel,'Apply'); window._settings_dialog.reject()
         navigation(window,'studio');window.select_simulation(one); QTest.qWait(180)
         if screenshots: window.grab().save(str(screenshots/'phase6-light.png'))
-        navigation(window,'settings'); window.shell.settings_panel.theme.setCurrentText('dark');click(window.shell.settings_panel,'Apply settings');navigation(window,'studio')
+        window.show_settings(); assert window._settings_dialog.isVisible()
+        window.shell.settings_panel.theme.setCurrentText('dark')
+        click(window.shell.settings_panel,'Apply'); window._settings_dialog.reject()
+        navigation(window,'studio')
         window.resize(1024,700);QTest.qWait(160)
         if screenshots: window.grab().save(str(screenshots/'phase6-compact.png'))
         assert not native_calls

@@ -23,6 +23,7 @@ from app.projects.library import discover_project
 from app.streaming.capture import CaptureService
 from app.streaming.manager import StreamManager
 from app.ui.capture_dialog import CaptureDialog
+from app.ui.coordinate_inspector import CoordinateInspector
 from app.ui.execution_panel import ExecutionPanel
 from app.ui.live_panel import LivePanel
 from app.ui.preview import PhonePreview
@@ -299,7 +300,8 @@ class StudioWindow(QMainWindow):
             self.restoreGeometry(geometry)
         # Legacy dock layout is retained in settings but no longer constrains
         # the workspace shell. Splitter preferences have a versioned namespace.
-        self.shell.switch(self.settings.value("last_workspace", "studio"))
+        last_workspace = self.settings.value("last_workspace", "studio")
+        self.shell.switch("studio" if last_workspace == "settings" else last_workspace)
         self.control_timer = QTimer(self)
         self.control_timer.timeout.connect(self._sync_controls)
         self.control_timer.start(150)
@@ -343,9 +345,27 @@ class StudioWindow(QMainWindow):
 
     def show_workspace(self, name):
         name = {"phone": "devices", "events": "monitor"}.get(name, name)
+        if name == "settings":
+            self.show_settings()
+            return
         if hasattr(self, "shell"):
             self.shell.switch(name)
             self._sync_controls()
+
+    def show_settings(self):
+        if not hasattr(self, "_settings_dialog"):
+            dialog = self._settings_dialog = QDialog(self)
+            dialog.setWindowTitle("Settings — Android Automation Studio")
+            dialog.resize(900, 600)
+            layout = QVBoxLayout(dialog)
+            layout.setContentsMargins(0, 0, 0, 0)
+            panel = self.shell.settings_panel
+            self.shell.stack.removeWidget(panel)
+            layout.addWidget(panel)
+            panel.save_requested.connect(lambda values: dialog.accept() if self.apply_settings(values) else None)
+        self._settings_dialog.show()
+        self.shell.settings_panel.show()
+        self._settings_dialog.raise_()
 
     def open_preview(self):
         self.show_workspace("devices")
@@ -663,7 +683,7 @@ class StudioWindow(QMainWindow):
                 or self.pending_controls or self.pending_runs or any(r.exitcode is None for r in self.run_states)
                 or self._capture_dialogs or any(s.state in ("starting", "streaming", "stopping") for s in self.streams.statuses().values())):
             panel.result.setText("Stop live previews and runs, and wait for pending operations before changing Android tools.")
-            return
+            return False
         selected_adb = values["adb_path"]
         invalid_adb = bool(selected_adb and (not Path(selected_adb).is_file()
                            or (sys.platform == "win32" and Path(selected_adb).name.lower() != "adb.exe")))
@@ -696,6 +716,7 @@ class StudioWindow(QMainWindow):
                              if invalid_adb else "Settings saved. Worker limit applies at next launch. Use Diagnose Connection to verify Android tools.")
         if tool_changed:
             self.refresh_devices()
+        return True
 
     def _sync_controls(self):
         if not hasattr(self, "shell") or self._closing:
@@ -731,6 +752,12 @@ class StudioWindow(QMainWindow):
         self.actions["pause"].setEnabled(bool(active and active.state == "running"))
         self.actions["resume"].setEnabled(bool(active and active.state == "paused"))
         self.actions["stop"].setEnabled(active is not None)
+        self.shell.start_button.setEnabled(self.run_action.isEnabled())
+        self.shell.stop_button.setEnabled(self.actions["stop"].isEnabled())
+        self.shell.pause_button.setEnabled(self.actions["pause"].isEnabled() or self.actions["resume"].isEnabled())
+        self.shell.pause_button.setText("Resume" if self.actions["resume"].isEnabled() else "Pause")
+        self.shell.coordinate_button.setEnabled(available and not self.capture_pending)
+        self.shell.screenshot_button.setEnabled(self.actions["capture"].isEnabled())
         self.reset_stop_action.setVisible(self._emergency_latched)
         self.shell.sync_devices()
         self.shell.welcome.setVisible(not any(device.available for device in self.registry.snapshot())
@@ -1786,6 +1813,7 @@ class StudioWindow(QMainWindow):
                     dialog.search_selection.setChecked(True)
             self._capture_dialogs.add(dialog)
             dialog.reference_ready.connect(lambda code: self._insert_asset_reference(code, script))
+            dialog.command_ready.connect(lambda code: self._insert_capture_command(code, script, root))
             dialog.asset_saved.connect(lambda path, region: self._asset_saved(path, region))
             def finished(result):
                 self._capture_dialogs.discard(dialog)
@@ -1796,11 +1824,54 @@ class StudioWindow(QMainWindow):
         # live rendering continues independently while selection is open.
         self._submit(operation, open_dialog)
 
+    def get_coordinate(self):
+        serial = self.selected_serial()
+        if not serial or self._closing:
+            self.log("Select an authorized phone before picking a coordinate.")
+            return
+        token = self._connection_token(serial)
+        script = self.path
+        def operation():
+            if token.is_set() or not self._device_available(serial):
+                raise RuntimeError("Device connection changed. Reconnect and try again.")
+            captured = self.capture_device(serial)
+            if token.is_set():
+                raise RuntimeError("Device disconnected during coordinate capture")
+            image = QImage.fromData(captured.png, "PNG")
+            if image.isNull():
+                raise ValueError("Device screenshot could not be decoded")
+            return image
+        def opened(image, error):
+            if error:
+                self.log(error)
+                return
+            if token.is_set() or self._closing or serial != self.selected_serial():
+                return
+            self.show_workspace("studio")
+            self.shell.close_coordinate_inspector()
+            inspector = CoordinateInspector(image, serial)
+            def insert(code):
+                if script == self.path and self.editor.is_ready:
+                    self.insert_code(code)
+                    self.shell.close_coordinate_inspector()
+                else:
+                    self.log("Editor document changed; pick the coordinate again before inserting.")
+            inspector.insert_requested.connect(insert)
+            inspector.exit_requested.connect(self.shell.close_coordinate_inspector)
+            self.shell.show_coordinate_inspector(inspector)
+        self._submit(operation, opened)
+
     def _asset_saved(self, path, region):
         self.log(f"Saved {path} · Android {region}")
         self.refresh_assets()
         if self.editor.is_ready:
             self.editor.set_project_root(self.project_root, script_dir=self.path.parent if self.path else None)
+
+    def _insert_capture_command(self, code, script, root):
+        if self.path != script or self.project_root != root or not self.editor.is_ready:
+            self.log(f"Image saved; editor document changed. Copy command manually: {code.strip()}")
+            return
+        self.editor.insert(code)
 
     def _insert_asset_reference(self, code, script):
         if self.path != script or not self.editor.is_ready:
@@ -2215,6 +2286,9 @@ class StudioWindow(QMainWindow):
             self.log(f"{operation.capitalize()} requested for {run_id}; waiting for worker acknowledgment.")
         except Exception as error:
             self.log(str(error))
+
+    def toggle_run_pause(self):
+        self._control_run("resume" if self.actions["resume"].isEnabled() else "pause")
 
     def _show_execution_line(self):
         if not hasattr(self, "execution_panel"):

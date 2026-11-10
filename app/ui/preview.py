@@ -203,13 +203,13 @@ class PhonePreview(QWidget):
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor("#141a23"))
+        painter.fillRect(self.rect(), QColor("#110d0c"))
         viewport = self.viewport()
         if viewport:
             left, top, width, height = viewport.content_rect
             painter.drawImage(QRectF(left, top, width, height), self.image)
             if viewport.input_available:
-                painter.setPen(QPen(QColor("#72e6ad"), 2))
+                painter.setPen(QPen(QColor("#d4af37"), 2))
                 for match in self._matches:
                     region = match.region
                     if (region.x + region.width > viewport.source_width
@@ -225,7 +225,7 @@ class PhonePreview(QWidget):
                 painter.setPen(QColor("#ffc86b"))
                 painter.drawText(QPointF(left + 8, top + 20), "Input unavailable: awaiting device geometry")
         else:
-            painter.setPen(QColor("#aebbd0"))
+            painter.setPen(QColor("#b5aa98"))
             painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter,
                              "No device frame\nSelect an authorized device")
 

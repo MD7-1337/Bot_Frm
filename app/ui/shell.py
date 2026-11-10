@@ -34,8 +34,8 @@ class WorkspaceShell(QWidget):
         self.preview_on_small = False
         self._selector_signature = None
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 6)
-        layout.setSpacing(12)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
         self.sidebar = QWidget()
         self.sidebar.setObjectName("sidebar")
         self.sidebar.setFixedWidth(190)
@@ -69,33 +69,55 @@ class WorkspaceShell(QWidget):
         layout.addWidget(self.sidebar)
         main = QVBoxLayout()
         main.setContentsMargins(0, 0, 0, 0)
-        main.setSpacing(10)
+        main.setSpacing(0)
         header = QHBoxLayout()
+        header.setContentsMargins(10, 6, 10, 6)
+        header.setSpacing(6)
+        self.stitch_header = QWidget()
+        self.stitch_header.setObjectName("stitchHeader")
+        self.stitch_header.setLayout(header)
+        for caption, callback, glyph, primary in (
+            ("Start", window.run_script, "run", True),
+            ("Stop", lambda: window._control_run("cancel"), "stop", False),
+            ("Pause / Resume", window.toggle_run_pause, "pause", False),
+            ("Get Coordinate", window.get_coordinate, "search", False),
+            ("Screenshot", window.capture_region, "visual", False),
+        ):
+            control = button(caption, callback, primary=primary)
+            control.setIcon(icon(glyph, "#d4af37"))
+            control.setAccessibleName(caption)
+            header.addWidget(control)
+            setattr(self, {"Start":"start_button", "Stop":"stop_button", "Pause / Resume":"pause_button",
+                           "Get Coordinate":"coordinate_button", "Screenshot":"screenshot_button"}[caption], control)
+        header.addStretch(1)
+        self.device_selector = QComboBox()
+        self.device_selector.setAccessibleName("Active Android device")
+        self.device_selector.setMinimumWidth(180)
+        self.device_selector.setMaximumWidth(300)
+        self.device_selector.setToolTip("All manual actions target this exact ADB serial.")
+        self.device_selector.currentIndexChanged.connect(self._select_device)
+        header.addWidget(self.device_selector)
+        self.settings_button = button("Settings", lambda: window.show_workspace("settings"))
+        self.settings_button.setIcon(icon("settings", "#d4af37"))
+        header.addWidget(self.settings_button)
+        main.addWidget(self.stitch_header)
         titles = QVBoxLayout()
         titles.setSpacing(3)
         self.title = label("Script Studio", "workspaceTitle")
         self.subtitle = label(WORKSPACES["studio"][1])
         titles.addWidget(self.title)
         titles.addWidget(self.subtitle)
-        header.addLayout(titles, stretch=1)
-        self.device_selector = QComboBox()
-        self.device_selector.setAccessibleName("Active Android device")
-        self.device_selector.setMinimumWidth(180)
-        self.device_selector.setMaximumWidth(300)
-        self.device_selector.setToolTip("All manual actions target this exact ADB serial. Ctrl-select rows in Device Manager for multi-phone runs.")
-        self.device_selector.currentIndexChanged.connect(self._select_device)
-        header.addWidget(self.device_selector)
+        # Legacy workspace controls remain constructed for command/menu routing.
         self.command_button = button("Commands", window.command_palette)
         self.command_button.setToolTip("Search actions (Ctrl+Shift+P)")
-        header.addWidget(self.command_button)
+        self.command_button.hide()
         self.preview_toggle = button("Preview", self.toggle_preview)
         self.preview_toggle.setToolTip("Show or hide the active phone preview on a compact window")
-        header.addWidget(self.preview_toggle)
+        self.preview_toggle.hide()
         self.emergency = button("Emergency stop", window.emergency_stop)
         self.emergency.setObjectName("emergency")
         self.emergency.setToolTip("Stop all script workers and block new studio inputs (Ctrl+Shift+F12)")
-        header.addWidget(self.emergency)
-        main.addLayout(header)
+        sidebar.addWidget(self.emergency)
         self.simulation_notice = label(SIMULATION_LABEL, "notice")
         self.simulation_notice.hide()
         main.addWidget(self.simulation_notice)
@@ -127,20 +149,29 @@ class WorkspaceShell(QWidget):
         welcome.addWidget(button("Start Demo Session", window.start_demo, primary=True))
         welcome.addWidget(button("New script", window.new_script))
         studio_layout.addWidget(self.welcome)
+        self.welcome.hide()
         split = QSplitter()
         split.addWidget(self.project)
         split.addWidget(self.documents)
         self.preview_slots["studio"] = self.slot()
         split.addWidget(self.preview_slots["studio"])
-        split.setSizes([210, 650, 290])
+        split.setSizes([210, 620, 620])
         split.setStretchFactor(1, 1)
         self.splitters["studio_horizontal"] = split
         self.studio_split = split
         vertical = QSplitter(Qt.Orientation.Vertical)
         vertical.addWidget(split)
         self.execution_slots["studio"] = self.slot()
-        vertical.addWidget(self.execution_slots["studio"])
-        vertical.setSizes([620, 180])
+        self.console_toggle = button("▾  Output Console", self.toggle_console)
+        self.console_toggle.setObjectName("consoleHeader")
+        console = QWidget()
+        console_layout = QVBoxLayout(console)
+        console_layout.setContentsMargins(0, 0, 0, 0)
+        console_layout.setSpacing(0)
+        console_layout.addWidget(self.console_toggle)
+        console_layout.addWidget(self.execution_slots["studio"], stretch=1)
+        vertical.addWidget(console)
+        vertical.setSizes([680, 130])
         vertical.setStretchFactor(0, 1)
         self.splitters["studio_vertical"] = vertical
         studio_layout.addWidget(vertical, stretch=1)
@@ -211,6 +242,8 @@ class WorkspaceShell(QWidget):
     def switch(self, key):
         if key not in self.pages:
             return
+        if key != "studio" and getattr(self, "_coordinate_inspector", None) is not None:
+            self.close_coordinate_inspector()
         if key == "debugger":
             self.debug_editor_slot.layout().addWidget(self.documents)
         elif self.current == "debugger":
@@ -218,6 +251,9 @@ class WorkspaceShell(QWidget):
         if key != self.current and key in ("devices", "visual", "recorder"):
             self.preview_on_small = False
         self.current = key
+        self.stitch_header.setVisible(key == "studio")
+        self.window.live_panel.set_stitch_mode(key == "studio")
+        self.window.execution_panel.set_compact(key == "studio")
         self.stack.setCurrentWidget(self.pages[key])
         self.title.setText(WORKSPACES[key][0])
         self.subtitle.setText(WORKSPACES[key][1])
@@ -246,6 +282,7 @@ class WorkspaceShell(QWidget):
         self.alpha.setVisible(not collapsed)
         self.local_label.setVisible(not collapsed)
         self.collapse.setText("»" if collapsed else "Collapse sidebar")
+        self.emergency.setText("STOP" if collapsed else "Emergency stop")
         for nav in self.nav.values():
             nav.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly if collapsed else Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         compact = self.width() < 1250
@@ -255,8 +292,10 @@ class WorkspaceShell(QWidget):
         # header toggle shows either the tools or the preview at full width.
         for key in ("devices", "visual", "recorder"):
             self.window.docks[key].setVisible(not compact or not self.preview_on_small)
-        self.project.setVisible(self.width() >= 1100)
-        self.preview_toggle.setVisible(compact and self.current in self.preview_slots)
+        self.sidebar.show()
+        self.project.setVisible(self.current == "studio" and self.width() >= 1100)
+        self.preview_slots["studio"].show()
+        self.preview_toggle.setVisible(compact and self.current in ("devices", "visual", "recorder"))
         self.preview_toggle.setText("Back to tools" if compact and self.preview_on_small and self.current in ("devices", "visual", "recorder") else "Preview")
 
     def toggle_preview(self):
@@ -307,8 +346,30 @@ class WorkspaceShell(QWidget):
             self.window.settings.setValue("workspace_v2/" + name, splitter.saveState())
 
     def reset(self):
-        self.splitters["studio_horizontal"].setSizes([210, 650, 290])
-        self.splitters["studio_vertical"].setSizes([620, 180])
+        self.splitters["studio_horizontal"].setSizes([210, 620, 620])
+        self.splitters["studio_vertical"].setSizes([680, 130])
         for key in ("devices", "visual", "recorder"):
             self.splitters[key].setSizes([900, 300])
         self.switch("studio")
+
+    def toggle_console(self):
+        slot = self.execution_slots["studio"]
+        slot.setVisible(not slot.isVisible())
+        self.console_toggle.setText("▾  Output Console" if slot.isVisible() else "▸  Output Console")
+
+    def show_coordinate_inspector(self, inspector):
+        slot = self.preview_slots["studio"]
+        self.window.docks["phone"].hide()
+        slot.layout().addWidget(inspector)
+        inspector.show()
+        self._coordinate_inspector = inspector
+
+    def close_coordinate_inspector(self):
+        inspector = getattr(self, "_coordinate_inspector", None)
+        if inspector is None:
+            return
+        self._coordinate_inspector = None
+        self.preview_slots["studio"].layout().removeWidget(inspector)
+        inspector.deleteLater()
+        self.preview_slots["studio"].layout().addWidget(self.window.docks["phone"])
+        self.window.docks["phone"].show()

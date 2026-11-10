@@ -26,8 +26,9 @@ class LivePanel(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(8)
-        heading = QHBoxLayout()
-        heading.addWidget(label("PHONE PREVIEW", "eyebrow"), stretch=1)
+        heading = self.heading = QHBoxLayout()
+        self.heading_label = label("PHONE PREVIEW", "eyebrow")
+        heading.addWidget(self.heading_label, stretch=1)
         self.configure = button("Quality", self._toggle_quality)
         heading.addWidget(self.configure)
         layout.addLayout(heading)
@@ -54,7 +55,7 @@ class LivePanel(QWidget):
             settings.addRow(text, widget)
         self.quality.hide()
         layout.addWidget(self.quality)
-        controls = QHBoxLayout()
+        controls = self.controls = QHBoxLayout()
         self.start_button = button("Start live", self.start_requested.emit, primary=True)
         self.stop_button = button("Stop", self.stop_requested.emit)
         self.more = QToolButton()
@@ -74,7 +75,7 @@ class LivePanel(QWidget):
         layout.addWidget(self.geometry_label)
         # Native Windows font metrics can make a row of Android controls wider
         # than the narrow preview slot. Each action gets the full pane width.
-        android = QGridLayout()
+        android = self.android_controls = QGridLayout()
         self.back_button = button("Back", self.back_requested.emit)
         self.home_button = button("Home", self.home_requested.emit)
         self.capture_button = button("Capture", self.capture_requested.emit)
@@ -88,11 +89,21 @@ class LivePanel(QWidget):
         contents.addWidget(selected)
         self.tiles_layout = QVBoxLayout()
         contents.addLayout(self.tiles_layout)
-        scroll = QScrollArea()
+        scroll = self.scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setWidget(content)
         layout.addWidget(scroll)
         self.tiles: dict[str, tuple[QGroupBox, PhonePreview, QLabel]] = {}
+
+    def set_stitch_mode(self, active: bool):
+        """Keep the original stream/gesture widget, with controls in the main bar."""
+        for widget in (self.heading_label, self.configure, self.status, self.start_button,
+                       self.stop_button, self.more, self.geometry_label, self.back_button,
+                       self.home_button, self.capture_button):
+            widget.setVisible(not active)
+        self.quality.hide()
+        self.layout().setContentsMargins(0 if active else 10, 0 if active else 10,
+                                         0 if active else 10, 0 if active else 10)
 
     def _toggle_quality(self):
         self.quality.setVisible(not self.quality.isVisible())

@@ -19,7 +19,7 @@ class ExecutionPanel(QWidget):
         self.summary = QLabel("No script runs. Select a phone and approve a trusted script to begin.")
         self.summary.setWordWrap(True)
         layout.addWidget(self.summary)
-        tabs = QTabWidget()
+        tabs = self.tabs = QTabWidget()
         self.table = QTableWidget(0, 5)
         self.table.setHorizontalHeaderLabels(["Phone", "Script", "State", "Line", "Error"])
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -37,6 +37,12 @@ class ExecutionPanel(QWidget):
         self.lines: dict[str, int] = {}
         self.errors: dict[str, str] = {}
         self.failures: dict[str, dict] = {}
+
+    def set_compact(self, compact: bool):
+        """Show just the existing output stream in the Stitch main workspace."""
+        self.summary.setVisible(not compact)
+        self.tabs.setCurrentIndex(1 if compact else 0)
+        self.tabs.tabBar().setVisible(not compact)
 
     def selected_run(self) -> str | None:
         items = self.table.selectedItems()
