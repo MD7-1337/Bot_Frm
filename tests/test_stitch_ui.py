@@ -168,3 +168,23 @@ def test_main_split_and_coordinate_inspector_lifecycle():
     assert window.preview.isVisible()
     assert all(not window.docks[name].isVisible() for name in ("visual", "recorder"))
     window.close()
+
+
+def test_selected_phone_stitch_chrome_tracks_status_without_extra_preview():
+    app = _app()
+    window = StudioWindow(discover=False)
+    window.resize(1450, 900)
+    window.show()
+    app.processEvents()
+    panel = window.live_panel
+    assert panel.stitch_viewer_header.isVisible()
+    assert panel.viewer_footer.isVisible()
+    assert not panel.heading_label.isVisible()
+    assert panel.tiles == {}
+    panel.update_status("device", "streaming · 30 FPS", "device")
+    assert panel.stitch_viewer_state.text() == "streaming · 30 FPS"
+    assert panel.geometry_label.parent() is panel.viewer_footer
+    panel.set_stitch_mode(False)
+    assert not panel.stitch_viewer_header.isVisible()
+    assert panel.viewer_footer.isVisible()
+    window.close()
