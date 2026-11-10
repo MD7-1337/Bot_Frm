@@ -178,6 +178,10 @@ def test_selected_phone_stitch_chrome_tracks_status_without_extra_preview():
     app.processEvents()
     panel = window.live_panel
     assert panel.stitch_viewer_header.isVisible()
+    # The minimalist toolbar intentionally hides the old transport controls;
+    # Devices menu must still offer a way to enable genuine scrcpy video.
+    assert window.actions["start_live_preview"].text() == "Start live phone preview"
+    assert window.actions["stop_live_preview"].text() == "Stop live phone preview"
     assert panel.viewer_footer.isVisible()
     assert not panel.heading_label.isVisible()
     assert panel.tiles == {}
