@@ -1,0 +1,112 @@
+{
+  "ffmpeg_url": "https://codeload.github.com/FFmpeg/FFmpeg/tar.gz/refs/tags/n7.1",
+  "ffmpeg_sha256": "7ddad2d992bd250a6c56053c26029f7e728bebf0f37f80cf3f8a0e6ec706431a",
+  "pyav_url": "https://files.pythonhosted.org/packages/f8/b6/83129e0337376214b0304893cbf0ad0a54718bb47845517fa5870439ca0b/av-14.2.0.tar.gz",
+  "pyav_sha256": "132b5d52ca262b97b0356e8f48cbbe54d0ac232107a722ab8cc8c0c19eafa17b",
+  "configure": [
+    "./configure",
+    "--prefix=D:/a/Bot_Frm/Bot_Frm/build/lgpl-runtime/prefix",
+    "--disable-gpl",
+    "--disable-nonfree",
+    "--disable-version3",
+    "--disable-autodetect",
+    "--disable-static",
+    "--enable-shared",
+    "--disable-programs",
+    "--disable-doc",
+    "--disable-debug",
+    "--disable-x86asm",
+    "--disable-network",
+    "--disable-everything",
+    "--enable-avcodec",
+    "--enable-avformat",
+    "--enable-avfilter",
+    "--enable-avdevice",
+    "--enable-swscale",
+    "--enable-swresample",
+    "--enable-decoder=h264,mjpeg,rawvideo",
+    "--enable-parser=h264",
+    "--enable-demuxer=h264,image2",
+    "--enable-protocol=file,pipe",
+    "--enable-filter=buffer,buffersink,scale",
+    "--toolchain=msvc",
+    "--arch=x86_64",
+    "--target-os=win64"
+  ],
+  "external_prefix": false,
+  "generated_source_metadata": [
+    {
+      "path": "VERSION",
+      "content": "7.1\n",
+      "reason": "Pin source archive release metadata instead of inheriting the enclosing application's Git revision"
+    }
+  ],
+  "source_provenance_complete": true,
+  "build_script": "build_lgpl_runtime.py",
+  "build_script_sha256": "135f40de601cbf3d6375ca9edec60b31638192cec3ebf39b62357ab3388fa6e8",
+  "runtime": {
+    "pyav": "14.2.0",
+    "ffmpeg_version": "7.1",
+    "library": "D:\\a\\Bot_Frm\\Bot_Frm\\build\\lgpl-runtime\\python\\Lib\\site-packages\\av.libs\\avcodec-61-6d4af633df242ae691f897201d001fd6.dll",
+    "license": "LGPL version 2.1 or later",
+    "configuration": "--prefix='D:/a/Bot_Frm/Bot_Frm/build/lgpl-runtime/prefix' --disable-gpl --disable-nonfree --disable-version3 --disable-autodetect --disable-static --enable-shared --disable-programs --disable-doc --disable-debug --disable-x86asm --disable-network --disable-everything --enable-avcodec --enable-avformat --enable-avfilter --enable-avdevice --enable-swscale --enable-swresample --enable-decoder='h264,mjpeg,rawvideo' --enable-parser=h264 --enable-demuxer='h264,image2' --enable-protocol='file,pipe' --enable-filter='buffer,buffersink,scale' --toolchain=msvc --arch=x86_64 --target-os=win64",
+    "library_versions": {
+      "libavutil": [
+        59,
+        39,
+        100
+      ],
+      "libavcodec": [
+        61,
+        19,
+        100
+      ],
+      "libavformat": [
+        61,
+        7,
+        100
+      ],
+      "libavdevice": [
+        61,
+        3,
+        100
+      ],
+      "libavfilter": [
+        10,
+        4,
+        100
+      ],
+      "libswscale": [
+        8,
+        3,
+        100
+      ],
+      "libswresample": [
+        5,
+        3,
+        100
+      ]
+    },
+    "decoded_h264": true,
+    "frame_size": [
+      32,
+      24
+    ],
+    "pixel": [
+      252,
+      0,
+      0
+    ]
+  },
+  "scope": "LGPL runtime inputs; complete Qt/Python/application redistribution review remains separate",
+  "platform": "Windows-2022Server-10.0.20348-SP0",
+  "glibc": [
+    "",
+    ""
+  ],
+  "wheel": "D:\\a\\Bot_Frm\\Bot_Frm\\build\\lgpl-runtime\\wheelhouse\\av-14.2.0-cp312-cp312-win_amd64.whl",
+  "wheel_sha256": "a23fd63095f5ae9b66c4545a7dcd5cb12953ed732ee6a96a145a3c14714bf6ec",
+  "runtime_python": "D:\\a\\Bot_Frm\\Bot_Frm\\build\\lgpl-runtime\\python\\Scripts\\python.exe",
+  "prefix": "D:\\a\\Bot_Frm\\Bot_Frm\\build\\lgpl-runtime\\prefix",
+  "notices": "D:\\a\\Bot_Frm\\Bot_Frm\\build\\lgpl-runtime\\FFmpeg-notices"
+}

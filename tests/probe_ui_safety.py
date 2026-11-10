@@ -150,6 +150,9 @@ def main():
     preview.set_frame(frame(200, 100))
     QTest.mouseRelease(preview, Qt.MouseButton.LeftButton, pos=point)
     assert not gestures and preview._press is None
+    # Let the first-show splitter settle. A resize during the double-click
+    # interval intentionally cancels a deferred tap for coordinate safety.
+    QTest.qWait(500)
     point = QPoint(*map(round, preview.viewport().from_device(40, 30)))
     QTest.mouseClick(preview, Qt.MouseButton.LeftButton, pos=point)
     spin(application, lambda: bool(gestures))

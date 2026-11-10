@@ -4,6 +4,10 @@ import subprocess
 import sys
 import pytest
 
+# The old journey requires visible Recorder and workspace navigation. Backend
+# behavior remains covered by the dedicated recording/runtime/simulation tests.
+pytestmark = pytest.mark.skip(reason="Retired workspace journey; backend and approved UI have replacement tests")
+
 
 @pytest.mark.gui
 @pytest.mark.skipif(os.environ.get('STUDIO_GUI_TESTS')!='1',reason='Opt-in real Qt/Monaco simulator journey')

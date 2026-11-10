@@ -5,8 +5,11 @@ not a feature-complete Alpha candidate or Beta release.
 
 - Real USB/Wi-Fi phones, scrcpy frames, rotation, touch mapping, reconnect and
   two-phone independence are **NOT VERIFIED** in this Linux cloud environment.
-- Windows source/packaged runtime and installer are **NOT VERIFIED**. Recipes and
-  CI jobs are provided; no portable ZIP or installer artifact is claimed here.
+- Native Windows EXE/ZIP/installer and Ubuntu portable builds have passed frozen
+  workflow smoke tests. Source acceptance is recorded per commit in
+  [current validation](RELEASE_VALIDATION.md). Binary downloads remain blocked by
+  licensing clearance; Windows 10/11 interactive desktop and hardware acceptance
+  remain unverified.
 - Debugger snapshots support bounded project Python imports and per-file
   breakpoints. Native extensions, already-loaded/outside-project modules and user
   import hooks retain normal Python behavior. Conditional/function breakpoints,
@@ -37,7 +40,7 @@ not a feature-complete Alpha candidate or Beta release.
   Sustained streaming load, long-run leak testing and real-device limits remain
   acceptance work.
 - Redistribution needs repository license confirmation, Qt/WebEngine/Chromium
-  notices, FFmpeg/PyAV license review and Android-tool terms review. Unsigned
-  packaging recipes do not resolve these obligations.
+  notices, FFmpeg/PyAV license review and Android-tool terms review. Actual payload inventories and source-built LGPL FFmpeg/PyAV improve evidence;
+  unsigned builds alone do not resolve these obligations.
 
 See [the development report](ALPHA_COMPLETION.md) for evidence and next steps.

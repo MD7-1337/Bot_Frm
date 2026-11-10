@@ -13,6 +13,8 @@ def escape(value):
 def publish(path: Path):
     root = ET.parse(path).getroot()
     cases = list(root.iter("testcase"))
+    if not cases:
+        raise ValueError("JUnit report contains no executed test cases")
     failures = [(case, detail) for case in cases for detail in list(case)
                 if detail.tag in ("failure", "error")]
     skipped = sum(case.find("skipped") is not None for case in cases)
@@ -31,4 +33,4 @@ def publish(path: Path):
 
 
 if __name__ == "__main__":
-    publish(Path(sys.argv[1]))
+    raise SystemExit(1 if publish(Path(sys.argv[1])) else 0)

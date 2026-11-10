@@ -1,29 +1,39 @@
+"""Inspector lifecycle in the approved studio layout.
+
+Backend debugger, scheduler, recorder, and project coverage lives in their
+respective non-navigation test modules.
+"""
 import os
-from pathlib import Path
-import subprocess
-import sys
 
 import pytest
+from PySide6.QtGui import QImage
+from PySide6.QtWidgets import QApplication
+
+from app.ui.coordinate_inspector import CoordinateInspector
+from app.ui.window import StudioWindow
 
 
 @pytest.mark.gui
-@pytest.mark.skipif(os.environ.get("STUDIO_GUI_TESTS") != "1", reason="Real Qt/Monaco alpha workflow")
-def test_managed_project_debug_scheduled_simulation_and_restart(tmp_path):
-    root = Path(__file__).resolve().parents[1]
-    command = [sys.executable, str(root / "tests/probe_alpha_completion.py"), str(tmp_path)]
-    if screenshots := os.environ.get("STUDIO_SCREENSHOT_DIR"):
-        command.append(screenshots)
-    env = dict(os.environ, STUDIO_CONFIG_DIR=str(tmp_path / "config"), STUDIO_DATA_DIR=str(tmp_path / "data"))
-    try:
-        result = subprocess.run(command, cwd=root, env=env, capture_output=True, text=True, timeout=100)
-    except subprocess.TimeoutExpired as error:
-        output = error.stdout or b""
-        errors = error.stderr or b""
-        if isinstance(output, bytes):
-            output = output.decode("utf-8", errors="replace")
-        if isinstance(errors, bytes):
-            errors = errors.decode("utf-8", errors="replace")
-        pytest.fail(f"Native GUI workflow timed out.\n{output}\n{errors}")
-    assert result.returncode == 0, result.stdout + result.stderr
-    for check in ("managed_project", "captured_target", "gutter_breakpoint", "debug_variables", "debug_step", "recorded_python", "scheduled_worker", "durable_history", "archive_restore", "restart_revokes_trust"):
-        assert f'"{check}": true' in result.stdout
+@pytest.mark.skipif(os.environ.get("STUDIO_GUI_TESTS") != "1", reason="Requires Qt GUI")
+def test_coordinate_inspector_resize_cancel_and_restore():
+    app = QApplication.instance() or QApplication([])
+    window = StudioWindow(discover=False)
+    window.resize(1400, 850)
+    window.show()
+    app.processEvents()
+    image = QImage(108, 240, QImage.Format.Format_RGB32)
+    image.fill(0xff203040)
+    inspector = CoordinateInspector(image, "fixture", source_size=(216, 480))
+    inspector.exit_requested.connect(window.shell.close_coordinate_inspector)
+    window.shell.show_coordinate_inspector(inspector)
+    app.processEvents()
+    inspector.select_point(27, 60)
+    assert inspector.point == (54, 120)
+    window.resize(1000, 700)
+    app.processEvents()
+    assert inspector.isVisible()
+    inspector.exit_requested.emit()
+    app.processEvents()
+    assert window.preview.isVisible()
+    assert window.shell._coordinate_inspector is None
+    window.close()

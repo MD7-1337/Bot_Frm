@@ -23,7 +23,7 @@ class Theme:
 
 
 THEMES = {
-    "dark": Theme("#11151e", "#191f2c", "#222b3b", "#303b50", "#e7edf8", "#a9b6cc", "#75a7ff", "#283f67", "#ff8e9a"),
+    "dark": Theme("#110d0c", "#1e1a18", "#292522", "#3b3731", "#eae0d0", "#b5aa98", "#d4af37", "#394d3b", "#b84a39"),
     "light": Theme("#eef2f8", "#ffffff", "#f3f6fb", "#ced7e5", "#1b2941", "#50617b", "#235fc5", "#dce9ff", "#b82743"),
 }
 # Original, small line icons. Labels/accessibility names remain available.
@@ -72,6 +72,8 @@ def apply_theme(application, name="dark"):
     palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text, QColor(theme.muted))
     palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.ButtonText, QColor(theme.muted))
     application.setPalette(palette)
+    input_background = "#171513" if name == "dark" else theme.surface
+    inset_background = "#110d0c" if name == "dark" else theme.surface
     application.setStyleSheet(f'''
         QWidget {{ color: {theme.text}; }}
         QMainWindow, QWidget#workspaceShell {{ background: {theme.background}; }}
@@ -79,7 +81,10 @@ def apply_theme(application, name="dark"):
         QToolBar {{ padding: 6px; border-bottom: 1px solid {theme.border}; }}
         QMenu::item {{ padding: 8px 22px; }}
         QMenu::item:selected {{ background: {theme.selection}; }}
-        QWidget#sidebar, QFrame#surface {{ background: {theme.surface}; border: 1px solid {theme.border}; border-radius: 10px; }}
+        QWidget#sidebar, QFrame#surface {{ background: {theme.surface}; border: 1px solid {theme.border}; border-radius: 4px; }}
+        QWidget#stitchHeader, QWidget#consoleHeader {{ background: {theme.surface}; border-bottom: 1px solid {theme.border}; }}
+        QLabel#stitchHeading {{ font-family: 'Space Grotesk'; font-size: 13px; font-weight: 600; }}
+        QLabel#stitchMetadata {{ color: {theme.muted}; font-family: 'JetBrains Mono'; font-size: 11px; }}
         QLabel#brand {{ font-size: 18px; font-weight: 700; color: {theme.accent}; }}
         QLabel#eyebrow {{ color: {theme.accent}; font-size: 10px; font-weight: 700; }}
         QLabel#workspaceTitle {{ font-size: 24px; font-weight: 700; }}
@@ -89,16 +94,16 @@ def apply_theme(application, name="dark"):
         QLabel[severity="error"] {{ color: {theme.danger}; }}
         QToolButton#navButton {{ text-align: left; border: none; border-radius: 8px; padding: 10px 12px; min-height: 24px; }}
         QToolButton#navButton:hover, QToolButton#navButton:checked {{ background: {theme.selection}; color: {theme.accent}; }}
-        QPushButton, QToolButton {{ background: {theme.raised}; border: 1px solid {theme.border}; border-radius: 6px; padding: 7px 12px; min-height: 18px; }}
+        QPushButton, QToolButton {{ background: {theme.raised}; border: 1px solid {theme.border}; border-radius: 3px; padding: 6px 10px; min-height: 18px; }}
         QPushButton:hover, QToolButton:hover {{ border-color: {theme.accent}; }}
         QPushButton:focus, QToolButton:focus, QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus {{ border: 1px solid {theme.accent}; }}
         QPushButton:disabled, QToolButton:disabled {{ color: {theme.muted}; background: {theme.surface}; }}
         QPushButton#primary {{ background: {theme.accent}; color: {theme.background}; font-weight: 600; border: none; }}
         QPushButton#primary:disabled {{ background: {theme.raised}; color: {theme.muted}; border: 1px solid {theme.border}; }}
         QPushButton#emergency {{ color: {theme.danger}; border-color: {theme.danger}; font-weight: 600; }}
-        QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox {{ background: {theme.surface}; border: 1px solid {theme.border}; border-radius: 5px; padding: 6px 8px; min-height: 18px; selection-background-color: {theme.selection}; }}
+        QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox {{ background: {input_background}; border: 1px solid {theme.border}; border-radius: 3px; padding: 6px 8px; min-height: 18px; selection-background-color: {theme.selection}; }}
         QComboBox::drop-down {{ border: none; width: 20px; }}
-        QListWidget, QTreeWidget, QTreeView, QTableWidget, QPlainTextEdit {{ background: {theme.surface}; border: 1px solid {theme.border}; border-radius: 7px; selection-background-color: {theme.selection}; outline: none; }}
+        QListWidget, QTreeWidget, QTreeView, QTableWidget, QPlainTextEdit {{ background: {inset_background}; border: 1px solid {theme.border}; border-radius: 3px; selection-background-color: {theme.selection}; outline: none; }}
         QListWidget::item {{ padding: 10px; border-bottom: 1px solid {theme.border}; }}
         QListWidget::item:selected {{ background: {theme.selection}; border-left: 3px solid {theme.accent}; }}
         QHeaderView::section {{ background: {theme.raised}; border: none; padding: 8px; color: {theme.muted}; }}

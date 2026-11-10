@@ -73,4 +73,4 @@ def test_integrated_workbench_starts_and_cleans_up(tmp_path):
                             env=environment, capture_output=True, text=True, timeout=35)
     assert result.returncode == 0, result.stdout + result.stderr
     assert '"monaco_ready": true' in result.stdout
-    assert '"dock_count": 5' in result.stdout
+    assert '"dock_count": 3' in result.stdout

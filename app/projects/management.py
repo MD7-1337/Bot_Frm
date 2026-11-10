@@ -432,6 +432,10 @@ class ProjectStore:
                 keys = set()
                 checked = []
                 for member in members:
+                    # ZipInfo truncates filename at NUL; validate the original spelling
+                    # before using its extraction-facing filename.
+                    if member.orig_filename != member.filename:
+                        raise ProjectError("Unsafe archive member name")
                     reference = member.filename.rstrip("/") if member.is_dir() else member.filename
                     path = _safe_path(reference)
                     mode = member.external_attr >> 16

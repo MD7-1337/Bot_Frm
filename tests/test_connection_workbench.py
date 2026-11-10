@@ -6,6 +6,10 @@ import sys
 
 import pytest
 
+# Sidebar workspace navigation was removed. Connection wizard coverage is in
+# test_connection_wizard.py; approved-window coverage is in test_alpha_ux.py.
+pytestmark = pytest.mark.skip(reason="Retired sidebar journey; replacement GUI and wizard tests cover current UI")
+
 
 @pytest.mark.gui
 @pytest.mark.skipif(os.environ.get("STUDIO_GUI_TESTS") != "1", reason="Real workbench/Monaco connection wizard")

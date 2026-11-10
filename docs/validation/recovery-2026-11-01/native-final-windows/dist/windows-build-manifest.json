@@ -1,0 +1,12 @@
+{
+  "version": "0.2.0",
+  "commit": "1e14932ea47bf174096fd62eda7a29e805c681c7",
+  "portable_zip": "AndroidAutomationStudio-windows-x64-portable.zip",
+  "portable_sha256": "6cd1ca4733e97d29bdcc92323619e6f8f740e1efe3582cb517a1ec2dccd42d52",
+  "smoke_report": "windows-frozen-smoke.json",
+  "smoke_passed": true,
+  "frozen": true,
+  "installer": "AndroidAutomationStudio-windows-x64-setup.exe",
+  "signed": false,
+  "physical_android": "NOT VERIFIED"
+}

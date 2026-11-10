@@ -85,7 +85,7 @@ def main() -> int:
         parser.error("Use Python 3.12 and PyInstaller==6.12.0")
     sys.path.insert(0, str(ROOT))
     from app.editor.assets import validate_monaco
-    from tools.build_windows import write_notices
+    from tools.build_windows import write_notices, write_payload_inventory
     validate_monaco(ROOT / "editor_web")
     write_notices(ROOT / "build/release-notices")
     subprocess.run([sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", str(ROOT / "packaging/linux.spec")], cwd=ROOT, check=True)
@@ -116,6 +116,9 @@ def main() -> int:
                 "source_sha256": source_digest(ROOT),
                 "frozen": True, "android_hardware": "NOT VERIFIED", "windows": "NOT VERIFIED"}
     (payload / "BUILD_INFO.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    inventory = ROOT / "dist/linux-payload-inventory.json"
+    write_payload_inventory(payload, inventory)
+    shutil.copyfile(inventory, payload / "PAYLOAD_INVENTORY.json")
     archive = ROOT / "dist" / ARCHIVE
     digest = create_portable_archive(payload, archive)
     if not args.skip_smoke:

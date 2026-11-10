@@ -6,6 +6,7 @@ selected serial and must enforce its own finite capture timeout and generation.
 from __future__ import annotations
 
 from collections.abc import Callable
+import json
 from pathlib import Path
 
 import numpy as np
@@ -13,7 +14,7 @@ from PySide6.QtCore import (QIODevice, QObject, QPointF, QRectF, QRunnable,
                             QSaveFile, QThreadPool, Qt, Signal, Slot)
 from PySide6.QtGui import QColor, QImage, QPainter, QPen
 from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFileDialog,
-                               QComboBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QTabWidget, QVBoxLayout, QWidget)
+                               QComboBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QTabWidget, QVBoxLayout, QWidget)
 
 from app.projects.assets import android_region, reference_code
 from app.streaming.coordinates import Viewport
@@ -105,11 +106,11 @@ class SelectionCanvas(QWidget):
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor("#141a23"))
+        painter.fillRect(self.rect(), QColor("#110d0c"))
         painter.drawImage(QRectF(*self.viewport().content_rect), self.image)
         if self.selection:
-            painter.setPen(QPen(QColor("#5ab5ff"), 2))
-            painter.setBrush(QColor(90, 181, 255, 45))
+            painter.setPen(QPen(QColor("#d4af37"), 2))
+            painter.setBrush(QColor(212, 175, 55, 45))
             painter.drawRect(self._rectangle(self.selection))
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.setPen(QPen(QColor("#69db99"), 2))
@@ -146,6 +147,7 @@ class CaptureDialog(QDialog):
     """
     asset_saved = Signal(str, object)
     reference_ready = Signal(str)
+    command_ready = Signal(str)
     match_finished = Signal(object)
 
     def __init__(self, frame: QImage, serial: str, source_size: tuple[int, int] | None = None,
@@ -171,17 +173,22 @@ class CaptureDialog(QDialog):
         self._busy = False
         self._closing = False
         self._job = None
-        self._match_threshold = 0.9
+        self._match_threshold = 0.85
         self.pool = QThreadPool(self)
         self.pool.setMaxThreadCount(1)
-        self.setWindowTitle(f"Capture image · {serial}")
-        self.resize(960, 760)
+        self.setWindowTitle(f"Screenshot & Template Matching · {serial}")
+        self.resize(1160, 760)
         layout = QVBoxLayout(self)
-        self.instructions = QLabel("Frozen device frame. Drag a rectangle to crop; coordinates below use Android pixels.")
+        layout.setSpacing(6)
+        self.instructions = QLabel("Fresh device frame captured  •  Drag a rectangle on the screenshot to select a target")
         self.instructions.setWordWrap(True)
         if serial.startswith("sim://"):
             self.instructions.setText("SIMULATED DEVICE — NOT CONNECTED TO ANDROID HARDWARE\nFrozen simulation pixels. Drag a crop; coordinates use the original simulated screen.")
         layout.addWidget(self.instructions)
+        body = QHBoxLayout()
+        body.setSpacing(10)
+        left = QVBoxLayout()
+        right = QVBoxLayout()
         self.canvas = SelectionCanvas(self.frame)
         self.canvas.selected.connect(self._selection_changed)
         self.comparison = SelectionCanvas(self.frame)
@@ -191,10 +198,26 @@ class CaptureDialog(QDialog):
         self.tabs.addTab(self.canvas, "Frozen capture · crop source")
         self.tabs.addTab(self.comparison, "Fresh match result")
         self.tabs.setTabEnabled(1, False)
-        layout.addWidget(self.tabs, stretch=1)
+        left.addWidget(self.tabs, stretch=1)
         self.coordinates = QLabel("No region selected")
         self.coordinates.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        layout.addWidget(self.coordinates)
+        left.addWidget(self.coordinates)
+        body.addLayout(left, stretch=3)
+        options = QWidget()
+        options.setMinimumWidth(310)
+        options.setMaximumWidth(380)
+        options.setLayout(right)
+        body.addWidget(options, stretch=1)
+        layout.addLayout(body, stretch=1)
+        heading = QLabel("Target Asset")
+        heading.setObjectName("stitchHeading")
+        right.addWidget(heading)
+        right.addWidget(QLabel("Target Filename"))
+        self.filename = QLineEdit("target.png")
+        self.filename.setAccessibleName("Target filename")
+        self.filename.textChanged.connect(self._update_code_preview)
+        right.addWidget(self.filename)
+        right.addWidget(QLabel("Similarity Score"))
         controls = QHBoxLayout()
         self.save_button = QPushButton("Save crop + insert reference…")
         self.save_button.setEnabled(False)
@@ -205,14 +228,23 @@ class CaptureDialog(QDialog):
         self.threshold.setRange(0, 1)
         self.threshold.setSingleStep(0.01)
         self.threshold.setDecimals(2)
-        self.threshold.setValue(0.9)
+        self.threshold.setValue(0.85)
         self.threshold.setToolTip("Normalized matching score; not a probability of correctness.")
+        self.threshold.valueChanged.connect(self._update_code_preview)
         controls.addWidget(self.threshold)
-        self.test_button = QPushButton("Test match on fresh frame")
+        self.test_button = QPushButton("Test Matching")
         self.test_button.setEnabled(False)
         self.test_button.clicked.connect(self.start_match)
         controls.addWidget(self.test_button)
-        layout.addLayout(controls)
+        # Keep the existing explicit Save As path for scripts outside a project.
+        right.addWidget(self.save_button)
+        right.addWidget(self.threshold)
+        right.addWidget(QLabel("Test Matching"))
+        self.match_source = QComboBox()
+        self.match_source.addItems(["Original Screenshot", "New from Phone"])
+        self.match_source.setCurrentIndex(0 if save_directory is not None else 1)
+        right.addWidget(self.match_source)
+        right.addWidget(self.test_button)
         search_controls = QHBoxLayout()
         self.scales = QLineEdit("1.0")
         self.scales.setMaxLength(256)
@@ -224,15 +256,37 @@ class CaptureDialog(QDialog):
         search_controls.addWidget(self.preprocessing)
         self.search_selection = QCheckBox("Search only selected rectangle")
         search_controls.addWidget(self.search_selection)
-        layout.addLayout(search_controls)
+        self.scales.hide()
+        self.preprocessing.hide()
+        self.search_selection.hide()
         self.result = QLabel("Select a region to save or test.")
         self.result.setWordWrap(True)
-        if test_frame_provider is None:
+        self.result.setMinimumHeight(72)
+        self.result.setAlignment(Qt.AlignmentFlag.AlignTop)
+        if test_frame_provider is None and self.match_source.currentIndex() == 1:
             self.result.setText("Fresh-frame matching unavailable: no selected-device capture provider was supplied.")
-        layout.addWidget(self.result)
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
+        right.addWidget(self.result)
+        self.back_button = QPushButton("Back to Selection (Preserve Crop)")
+        self.back_button.clicked.connect(lambda: self.tabs.setCurrentIndex(0))
+        right.addWidget(self.back_button)
+        right.addWidget(QLabel("Code Generation Preview"))
+        self.code_preview = QLabel()
+        self.code_preview.setObjectName("stitchMetadata")
+        self.code_preview.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        right.addWidget(self.code_preview)
+        self._update_code_preview()
+        right.addStretch()
+        footer = QHBoxLayout()
+        footer.addStretch()
+        cancel = QPushButton("Cancel")
+        cancel.clicked.connect(self.reject)
+        footer.addWidget(cancel)
+        self.save_insert_button = QPushButton("Save & Insert")
+        self.save_insert_button.setObjectName("primary")
+        self.save_insert_button.setEnabled(False)
+        self.save_insert_button.clicked.connect(self.save_and_insert)
+        footer.addWidget(self.save_insert_button)
+        layout.addLayout(footer)
         if self.template_image is not None:
             self.instructions.setText("Testing a project image on a fresh phone screen. Optionally drag a search rectangle; no input is sent.")
             self.test_button.setEnabled(test_frame_provider is not None)
@@ -250,7 +304,8 @@ class CaptureDialog(QDialog):
         self.coordinates.setText(f"Android: x={converted.x}, y={converted.y}, width={converted.width}, height={converted.height}"
                                  f" · crop: {region.width}×{region.height} encoded pixels")
         self.save_button.setEnabled(not self._busy)
-        self.test_button.setEnabled(not self._busy and self.test_frame_provider is not None)
+        self.save_insert_button.setEnabled(not self._busy and self.save_directory is not None)
+        self.test_button.setEnabled(not self._busy and (self.test_frame_provider is not None or self.match_source.currentIndex() == 0))
 
     def crop(self) -> QImage:
         region = self.selected_region
@@ -267,7 +322,7 @@ class CaptureDialog(QDialog):
             except (OSError, ValueError) as error:
                 self.result.setText(f"Could not save crop: {error}")
 
-    def save_to(self, path: Path) -> None:
+    def save_to(self, path: Path, *, emit_reference=True) -> None:
         """Save to a caller-approved path; native file dialog confirms overwrite."""
         image = self.crop()
         path = Path(path).resolve()
@@ -281,13 +336,46 @@ class CaptureDialog(QDialog):
             raise OSError(output.errorString())
         converted = android_region(self.selected_region, (self.frame.width(), self.frame.height()), self.source_size)
         self.asset_saved.emit(str(path), converted)
-        self.reference_ready.emit(reference_code(path, self.script_directory))
+        if emit_reference:
+            self.reference_ready.emit(reference_code(path, self.script_directory))
         self.result.setText(f"Saved {image.width()}×{image.height()} crop: {path}")
+
+    def _command(self):
+        name = self.filename.text().strip()
+        if not name or name in (".", "..") or Path(name).name != name or "/" in name or "\\" in name:
+            raise ValueError("Enter a PNG filename without a directory")
+        if not name.lower().endswith(".png"):
+            name += ".png"
+        quoted = json.dumps(name, ensure_ascii=True)
+        return (f"click({quoted})\n" if abs(self.threshold.value() - 0.85) < 0.0001 else
+                f"click(Pattern({quoted}).similar({self.threshold.value():.2f}))\n")
+
+    def _update_code_preview(self, *_):
+        try:
+            self.code_preview.setText(self._command().strip())
+        except ValueError:
+            self.code_preview.setText("Enter a target filename")
+
+    def save_and_insert(self):
+        try:
+            command = self._command()
+            name = self.filename.text().strip()
+            if not name.lower().endswith(".png"):
+                name += ".png"
+            path = self.save_directory / name
+            if path.exists() and QMessageBox.question(self, "Replace target?", f"Replace {name}?") != QMessageBox.StandardButton.Yes:
+                return
+            self.save_to(path, emit_reference=False)
+        except (OSError, ValueError) as error:
+            self.result.setText(f"Could not save crop: {error}")
+            return
+        self.command_ready.emit(command)
+        self.accept()
 
     def start_match(self):
         if self._busy or self._closing:
             return
-        if self.test_frame_provider is None:
+        if self.test_frame_provider is None and self.match_source.currentIndex() != 0:
             self.result.setText("Fresh-frame matching unavailable: selected-device capture is required.")
             return
         try:
@@ -301,7 +389,7 @@ class CaptureDialog(QDialog):
             return
         threshold = self.threshold.value()
         preprocessing = self.preprocessing.currentText()
-        provider = self.test_frame_provider
+        provider = self.test_frame_provider if self.match_source.currentIndex() == 1 else lambda: self.frame.copy()
         expected_size = (self.frame.width(), self.frame.height())
 
         def operation():
@@ -322,6 +410,7 @@ class CaptureDialog(QDialog):
         self.tabs.setCurrentIndex(0)
         self.tabs.setTabEnabled(1, False)
         self.save_button.setEnabled(False)
+        self.save_insert_button.setEnabled(False)
         self.test_button.setEnabled(False)
         self.threshold.setEnabled(False)
         self.scales.setEnabled(False)
@@ -343,8 +432,9 @@ class CaptureDialog(QDialog):
         self.scales.setEnabled(True)
         self.search_selection.setEnabled(True)
         self.save_button.setEnabled(self.selected_region is not None)
+        self.save_insert_button.setEnabled(self.selected_region is not None and self.save_directory is not None)
         self.test_button.setEnabled((self.template_image is not None or self.selected_region is not None)
-                                   and self.test_frame_provider is not None)
+                                   and (self.test_frame_provider is not None or self.match_source.currentIndex() == 0))
         if error:
             self.canvas.matches = []
             self.result.setText(f"Match failed: {error}")
@@ -360,7 +450,7 @@ class CaptureDialog(QDialog):
         self.tabs.setTabEnabled(1, True)
         self.tabs.setCurrentIndex(1)
         if not matches:
-            self.result.setText(f"No match reached score {self._match_threshold:.2f} on the fresh {self.serial} frame.")
+            self.result.setText(f"No match reached score {self._match_threshold:.2f} on the selected {self.serial} frame.")
         else:
             details = []
             for match in matches[:8]:

@@ -1,10 +1,12 @@
 """Debugger acceptance exercises actual isolated spawned Python workers."""
 import hashlib
+import bdb
+import linecache
 import time
 
 import pytest
 
-from app.automation.debugger import command_bytes, safe_value, validate_breakpoints, variables
+from app.automation.debugger import WorkerDebugger, command_bytes, safe_value, validate_breakpoints, variables
 from app.automation.runtime import RuntimeCoordinator
 
 
@@ -106,6 +108,32 @@ def test_pause_busy_debug_worker_dynamic_breakpoints_and_source_is_frozen(tmp_pa
         command(runtime, run, "continue")
         assert stopped(runtime)["line"] == 3
         runtime.cancel(run, grace=.2)
+
+
+def test_dynamic_breakpoints_use_snapshot_under_bdb_canonical_path(tmp_path):
+    """Exercise Windows-style bdb case normalization on every host platform."""
+    path = str(tmp_path / "MixedCaseScript.py")
+    source = "value = 1\nvalue += 1\nprint(value)\n"
+    # The disk content no longer contains the requested approved breakpoint.
+    from pathlib import Path
+    Path(path).write_text("raise RuntimeError('edited')\n")
+    debugger = WorkerDebugger.__new__(WorkerDebugger)
+    bdb.Bdb.__init__(debugger)
+    debugger.script_id = path
+    debugger.sources = {path: source}
+    debugger.canonic = lambda filename: filename.lower()
+    canonical = debugger.canonic(path)
+    previous = linecache.cache.get(canonical)
+    try:
+        debugger._breakpoints([3])
+        assert debugger.get_break(path, 3)
+        assert linecache.getline(canonical, 3) == "print(value)\n"
+    finally:
+        debugger.clear_all_breaks()
+        if previous is None:
+            linecache.cache.pop(canonical, None)
+        else:
+            linecache.cache[canonical] = previous
 
 
 def test_inspection_never_calls_user_repr(tmp_path):

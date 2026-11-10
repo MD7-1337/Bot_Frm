@@ -1,13 +1,13 @@
 # Android Automation Studio
 
-Cross-platform release work is on `feat/cross-platform-alpha-release`. See
-[release validation and actual downloads](docs/RELEASE_VALIDATION.md),
+Recovery work is on `recovery/continue-alpha-2026-11-01`. See
+[release validation and download status](docs/RELEASE_VALIDATION.md),
 [Windows installation](docs/INSTALL_WINDOWS.md), [Ubuntu installation](docs/INSTALL_UBUNTU.md)
 and [real Android acceptance](docs/REAL_ANDROID_TESTING.md). Autosave recovery,
 project presets/trash, device groups, ordered workflows, imported-source debugging,
 persistent breakpoints and a connection wizard extend the preceding Alpha below.
 
-A Windows-targeted desktop IDE for Android visual automation. **This 0.2.0 Alpha development increment adds a real worker debugger, persistent task scheduling, project archives, safer recovery tools and verified editor startup. It is not yet a feature-complete Alpha candidate: remaining scope and Windows/real-phone acceptance are recorded in [the development report](docs/ALPHA_COMPLETION.md).**
+A Windows-targeted desktop IDE for Android visual automation. **This 0.2.0 Alpha development increment adds a real worker debugger, persistent task scheduling, project archives, safer recovery tools and verified editor startup. Native Windows/Ubuntu source and frozen-package results are recorded in [current validation](docs/RELEASE_VALIDATION.md). Binary downloads remain blocked by licensing; physical-phone and interactive Windows 10/11 acceptance remain unverified.**
 
 Start here: [installation and dependency health](docs/INSTALLATION.md), [local testing](docs/LOCAL_TESTING.md), [debugger](docs/DEBUGGING.md), [tasks](docs/TASKS.md), [projects](docs/PROJECTS.md), [recovery](docs/RECOVERY.md), and [Windows packaging](docs/PACKAGING.md). The [Phase 6 validation](docs/PHASE6_VALIDATION.md) is historical baseline evidence. Existing [simulation](docs/SIMULATION.md), [recognition](docs/RECOGNITION.md), [recorder](docs/RECORDER.md) and [device troubleshooting](docs/ALPHA_STABILIZATION.md) workflows remain available.
 
@@ -47,7 +47,7 @@ The original [product specification](docs/PRODUCT_SPECIFICATION.md) is retained 
 - SQLite task definitions/history, manual/once/interval/daily/weekly schedules, priorities, dependencies, timeouts, independent device queues and explicit session trust. Restart, disconnect and emergency stop revoke scheduling approval.
 - Versioned managed projects, migration backups, search, recent projects, atomic metadata, duplicate and guarded ZIP backup/export/import. Imported data never authorizes Python execution.
 - Bounded read-only recognition recovery, checkpoint validation and persistent failure history under Activity & Logs. Input outcomes are never blindly replayed.
-- Windows freezer/portable/installer recipes and CI smoke gates. Windows artifacts have **not** been built or validated in this Linux execution.
+- Windows freezer/portable/installer recipes and CI smoke gates. Native recovery CI has built and smoke-tested Windows EXE/ZIP/installer and Ubuntu portable packages. **Binary downloads remain blocked by licensing review**; see [current validation](docs/RELEASE_VALIDATION.md).
 
 Real phones use the existing ADB/scrcpy backend. Simulation is explicitly opt-in and labeled **SIMULATED DEVICE — NOT CONNECTED TO ANDROID HARDWARE**. Missing dependencies/devices produce actionable errors.
 
@@ -57,7 +57,7 @@ Real phones use the existing ADB/scrcpy backend. Simulation is explicitly opt-in
 
 For **Ubuntu 22.04 x86_64**, follow [README_UBUNTU.md](README_UBUNTU.md) for cloning, system libraries, Python 3.12 setup, desktop startup and the phone-free fixture.
 
-Source development requires Python 3.12 and [uv](https://docs.astral.sh/uv/). The tested environment used uv 0.12.23. The eventual Windows release will bundle Python; that release has not been built. `uv.lock` contains dependency artifact hashes. The installed development environment occupies approximately 1 GB on this Linux machine.
+Source development requires Python 3.12 and [uv](https://docs.astral.sh/uv/). The tested environment used uv 0.12.23. The native Windows developer package bundles Python; public redistribution is still blocked. `uv.lock` contains dependency artifact hashes. The installed development environment occupies approximately 1 GB on this Linux machine.
 
 From this repository root, on Windows PowerShell:
 
@@ -69,7 +69,7 @@ uv sync --locked --extra test --python 3.12
 .venv\Scripts\python.exe -m app.main
 ```
 
-These Windows instructions are intended commands, not evidence of a Windows run. On the configured Linux cloud machine:
+These commands set up source development. Native package evidence is recorded in [release validation](docs/RELEASE_VALIDATION.md). On the configured Linux cloud machine:
 
 ```bash
 cd /workspace/Bot_Frm

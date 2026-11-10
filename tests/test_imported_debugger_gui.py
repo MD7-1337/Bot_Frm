@@ -17,6 +17,7 @@ def test_imported_debugger_and_persistent_monaco_breakpoints(tmp_path):
         assert f'"{check}": true' in result.stdout
 
 
+@pytest.mark.skip(reason="Retired visible debugger and demo navigation; imported debugger backend test remains active")
 @pytest.mark.gui
 @pytest.mark.skipif(os.environ.get('STUDIO_GUI_TESTS') != '1', reason='Real imported-source workbench navigation')
 def test_workbench_imported_frame_navigation_preserves_stale_edits(tmp_path):

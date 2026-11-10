@@ -78,3 +78,18 @@ def test_ci_failure_annotations_escape_control_characters_and_preserve_counts(tm
     assert output.splitlines()[1].startswith("::error title=Regression failure::")
     assert "x%25 y%0A::error::injected" in output
     assert "1 passed, 1 failed/error, 1 skipped" in summary.read_text()
+
+
+@pytest.mark.parametrize("body, expected", [
+    ('<testcase name="ok"/>', 0),
+    ('<testcase name="bad"><failure message="regression"/></testcase>', 1),
+    ('', 1),
+])
+def test_ci_report_process_rejects_failed_or_empty_evidence(tmp_path, body, expected):
+    import subprocess
+    import sys
+    source = tmp_path / "tests.xml"
+    source.write_text(f'<testsuites><testsuite>{body}</testsuite></testsuites>')
+    report = Path(__file__).resolve().parents[1] / "tools/ci_test_report.py"
+    result = subprocess.run([sys.executable, str(report), str(source)], capture_output=True, text=True)
+    assert result.returncode == expected

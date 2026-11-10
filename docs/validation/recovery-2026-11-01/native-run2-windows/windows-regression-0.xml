@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="11.424" timestamp="2026-11-01T11:14:09.786192+00:00" hostname="runnervmnjgfq"><testcase classname="tests.test_alpha_completion_gui" name="test_managed_project_debug_scheduled_simulation_and_restart" time="11.333"><failure message="AssertionError: Modal QFileDialog: Parent directory for new project&#10;  Driving QFileDialog: Parent directory for new project&#10;  Modal QInputDialog: New project&#10;  Driving QInputDialog: New project&#10;  Modal QFileDialog: Open project (schema 1 is backed up before migration)&#10;  Driving QFileDialog: Open project (schema 1 is backed up before migration)&#10;  Modal QFileDialog: Save captured region&#10;  Driving QFileDialog: Save captured region&#10;  Modal QFileDialog: Save Python script&#10;  Driving QFileDialog: Save Python script&#10;  Saved path: C:\Users\runneradmin\AppData\Local\Temp\pytest-of-runneradmin\pytest-0\test_managed_project_debug_sch0\managed-workflow\scripts\main.py&#10;  Modal QMessageBox: Approve trusted Python execution&#10;  Driving QMessageBox: Approve trusted Python execution&#10;  Modal QFileDialog: Save recorder session&#10;  Driving QFileDialog: Save recorder session&#10;  Modal TaskDialog: Automation task&#10;  Driving TaskDialog: Automation task&#10;  Modal QDialog: Approve exact task source and device&#10;  Driving QDialog: Approve exact task source and device&#10;  Modal QFileDialog: Export project&#10;  Driving QFileDialog: Export project&#10;  Modal QFileDialog: Import or restore project&#10;  Driving QFileDialog: Import or restore project&#10;  Modal QFileDialog: Import into a new directory&#10;  Driving QFileDialog: Import into a new directory&#10;  Modal QInputDialog: Import into a new directory&#10;  Driving QInputDialog: Import into a new directory&#10;  [7944:6032:1101/111412.216:ERROR:gpu_channel_manager.cc(959)] Failed to create GLES3 context, fallback to GLES2.&#10;  [7944:6032:1101/111412.216:ERROR:gpu_channel_manager.cc(970)] ContextResult::kFatalFailure: Failed to create shared context for virtualization.&#10;  Traceback (most recent call last):&#10;    File &quot;D:\a\Bot_Frm\Bot_Frm\tests\probe_alpha_completion.py&quot;, line 317, in &lt;module&gt;&#10;      main(Path(sys.argv[1]), Path(sys.argv[2]) if len(sys.argv) &gt; 2 else None)&#10;    File &quot;D:\a\Bot_Frm\Bot_Frm\tests\probe_alpha_completion.py&quot;, line 284, in main&#10;      assert (restored / &quot;scripts&quot; / &quot;main.py&quot;).read_text() == source&#10;             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^&#10;  AssertionError&#10;  &#10;assert 1 == 0&#10; +  where 1 = CompletedProcess(args=['D:\\a\\Bot_Frm\\Bot_Frm\\.venv\\Scripts\\python.exe', 'D:\\a\\Bot_Frm\\Bot_Frm\\tests\\probe_a...ain.py&quot;).read_text() == source\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError\n').returncode">tmp_path = WindowsPath('C:/Users/runneradmin/AppData/Local/Temp/pytest-of-runneradmin/pytest-0/test_managed_project_debug_sch0')
+
+    @pytest.mark.gui
+    @pytest.mark.skipif(os.environ.get("STUDIO_GUI_TESTS") != "1", reason="Real Qt/Monaco alpha workflow")
+    def test_managed_project_debug_scheduled_simulation_and_restart(tmp_path):
+        root = Path(__file__).resolve().parents[1]
+        command = [sys.executable, str(root / "tests/probe_alpha_completion.py"), str(tmp_path)]
+        if screenshots := os.environ.get("STUDIO_SCREENSHOT_DIR"):
+            command.append(screenshots)
+        env = dict(os.environ, STUDIO_CONFIG_DIR=str(tmp_path / "config"), STUDIO_DATA_DIR=str(tmp_path / "data"))
+        try:
+            result = subprocess.run(command, cwd=root, env=env, capture_output=True, text=True, timeout=100)
+        except subprocess.TimeoutExpired as error:
+            output = error.stdout or b""
+            errors = error.stderr or b""
+            if isinstance(output, bytes):
+                output = output.decode("utf-8", errors="replace")
+            if isinstance(errors, bytes):
+                errors = errors.decode("utf-8", errors="replace")
+            pytest.fail(f"Native GUI workflow timed out.\n{output}\n{errors}")
+&gt;       assert result.returncode == 0, result.stdout + result.stderr
+E       AssertionError: Modal QFileDialog: Parent directory for new project
+E         Driving QFileDialog: Parent directory for new project
+E         Modal QInputDialog: New project
+E         Driving QInputDialog: New project
+E         Modal QFileDialog: Open project (schema 1 is backed up before migration)
+E         Driving QFileDialog: Open project (schema 1 is backed up before migration)
+E         Modal QFileDialog: Save captured region
+E         Driving QFileDialog: Save captured region
+E         Modal QFileDialog: Save Python script
+E         Driving QFileDialog: Save Python script
+E         Saved path: C:\Users\runneradmin\AppData\Local\Temp\pytest-of-runneradmin\pytest-0\test_managed_project_debug_sch0\managed-workflow\scripts\main.py
+E         Modal QMessageBox: Approve trusted Python execution
+E         Driving QMessageBox: Approve trusted Python execution
+E         Modal QFileDialog: Save recorder session
+E         Driving QFileDialog: Save recorder session
+E         Modal TaskDialog: Automation task
+E         Driving TaskDialog: Automation task
+E         Modal QDialog: Approve exact task source and device
+E         Driving QDialog: Approve exact task source and device
+E         Modal QFileDialog: Export project
+E         Driving QFileDialog: Export project
+E         Modal QFileDialog: Import or restore project
+E         Driving QFileDialog: Import or restore project
+E         Modal QFileDialog: Import into a new directory
+E         Driving QFileDialog: Import into a new directory
+E         Modal QInputDialog: Import into a new directory
+E         Driving QInputDialog: Import into a new directory
+E         [7944:6032:1101/111412.216:ERROR:gpu_channel_manager.cc(959)] Failed to create GLES3 context, fallback to GLES2.
+E         [7944:6032:1101/111412.216:ERROR:gpu_channel_manager.cc(970)] ContextResult::kFatalFailure: Failed to create shared context for virtualization.
+E         Traceback (most recent call last):
+E           File "D:\a\Bot_Frm\Bot_Frm\tests\probe_alpha_completion.py", line 317, in &lt;module&gt;
+E             main(Path(sys.argv[1]), Path(sys.argv[2]) if len(sys.argv) &gt; 2 else None)
+E           File "D:\a\Bot_Frm\Bot_Frm\tests\probe_alpha_completion.py", line 284, in main
+E             assert (restored / "scripts" / "main.py").read_text() == source
+E                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E         AssertionError
+E         
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['D:\\a\\Bot_Frm\\Bot_Frm\\.venv\\Scripts\\python.exe', 'D:\\a\\Bot_Frm\\Bot_Frm\\tests\\probe_a...ain.py").read_text() == source\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError\n').returncode
+
+tests\test_alpha_completion_gui.py:27: AssertionError</failure></testcase></testsuite></testsuites>

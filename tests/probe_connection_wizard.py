@@ -7,7 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from PySide6.QtCore import QPoint, QSettings, Qt
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QFileDialog, QListWidget, QWizard
+from PySide6.QtWidgets import QApplication, QFileDialog, QListWidget, QPushButton, QWizard
 
 from app.devices.adb import DeviceInfo
 from app.devices.diagnostics import DiagnosticReport, DiagnosticStep
@@ -23,6 +23,21 @@ def main(root):
     application.processEvents()
     assert not wizard.discovery_page.isComplete() and not wizard.verify_page.isComplete()
     assert not wizard.home_button.isEnabled()
+    wizard.update_state([], adb_path="C:/Android Tools/adb.exe", discovery_error="ADB launch failed",
+                        discovery_checked=True)
+    assert "C:/Android Tools/adb.exe" in wizard.adb_status.text()
+    assert "ADB discovery failed" in wizard.discovery_status.text()
+    wizard.update_state([DeviceInfo("OLD", "unknown")], "OLD", discovery_error="ADB launch failed")
+    assert "ADB discovery failed" in wizard.discovery_status.text()
+    wizard.update_state([], adb_path="C:/Android Tools/adb.exe", discovery_pending=True)
+    assert "Checking ADB" in wizard.discovery_status.text()
+    actions = []
+    wizard.health_requested.connect(lambda: actions.append("health"))
+    wizard.compare_adb_requested.connect(lambda: actions.append("compare"))
+    wizard.demo_requested.connect(lambda: actions.append("demo"))
+    for title in ("Check dependency health", "Compare with scrcpy's adb.exe…", "Start Demo Mode without a phone"):
+        next(widget for widget in wizard.findChildren(QPushButton) if widget.text() == title).click()
+    assert actions == ["health", "compare", "demo"]
     QTest.mouseClick(wizard.prepared, Qt.MouseButton.LeftButton, pos=QPoint(8, wizard.prepared.height() // 2))
     QTest.mouseClick(wizard.button(QWizard.WizardButton.NextButton), Qt.MouseButton.LeftButton)
     assert wizard.currentId() == 1

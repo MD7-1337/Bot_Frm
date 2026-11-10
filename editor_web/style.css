@@ -1,4 +1,4 @@
-html, body, #editor { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #1e1e1e; }
+html, body, #editor { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #110d0c; }
 .studio-image-reference { text-decoration: underline dotted #6c9ecf; text-underline-offset: 3px; }
 .studio-image-missing { text-decoration: underline wavy #d6a94c; text-underline-offset: 3px; }
 .studio-image-hint { color: #88b9dd; font-size: 0.9em; }

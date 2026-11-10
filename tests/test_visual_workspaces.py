@@ -5,6 +5,10 @@ import sys
 
 import pytest
 
+# Visual Tools and Recorder pages were removed; screenshot/matching dialog and
+# coordinate inspector have current GUI coverage in test_stitch_ui.py.
+pytestmark = pytest.mark.skip(reason="Retired Visual Tools and Recorder navigation")
+
 
 @pytest.mark.gui
 @pytest.mark.skipif(os.environ.get("STUDIO_GUI_TESTS") != "1", reason="Requires Qt/Monaco integration")

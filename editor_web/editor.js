@@ -30,8 +30,25 @@ if (typeof QWebChannel !== "function" || typeof qt === "undefined" || !qt.webCha
     require(["vs/editor/editor.main"], function () {
         bridge.apiCatalog(function (rawCatalog) {
             const catalog = JSON.parse(rawCatalog);
+            monaco.editor.defineTheme("stitch-dark", {
+                base: "vs-dark", inherit: true,
+                rules: [
+                    {token: "keyword", foreground: "d4af37"},
+                    {token: "string", foreground: "c5b9a5"},
+                    {token: "number", foreground: "d17d56"},
+                    {token: "comment", foreground: "756e63", fontStyle: "italic"},
+                    {token: "identifier", foreground: "eae0d0"}
+                ],
+                colors: {
+                    "editor.background": "#110d0c", "editor.foreground": "#eae0d0",
+                    "editorLineNumber.foreground": "#756e63", "editorLineNumber.activeForeground": "#d4af37",
+                    "editor.lineHighlightBackground": "#1e1a18", "editorCursor.foreground": "#d4af37",
+                    "editor.selectionBackground": "#394d3b", "editorWidget.background": "#292522",
+                    "editorWidget.border": "#3b3731"
+                }
+            });
             const editor = monaco.editor.create(document.getElementById("editor"), {
-                value: "", language: "python", theme: "vs-dark", automaticLayout: true,
+                value: "", language: "python", theme: "stitch-dark", automaticLayout: true,
                 minimap: {enabled: false}, fontSize: 14, tabSize: 4, glyphMargin: true,
                 scrollBeyondLastLine: false, accessibilitySupport: "auto"
             });
@@ -230,9 +247,9 @@ if (typeof QWebChannel !== "function" || typeof qt === "undefined" || !qt.webCha
                 completionItems, signatureAt, hoverAt, refreshImages, setExecutionLine,
                 setRunStatus: status => { window.studio.runStatus = status; },
                 setAppearance: (theme, fontSize) => {
-                    monaco.editor.setTheme(theme === "light" ? "vs" : "vs-dark");
-                    editor.updateOptions({fontSize});
-                    document.body.style.background = theme === "light" ? "#ffffff" : "#1e1e1e";
+                    monaco.editor.setTheme(theme === "light" ? "vs" : "stitch-dark");
+                    editor.updateOptions({fontSize, fontFamily: "JetBrains Mono, Consolas, monospace"});
+                    document.body.style.background = theme === "light" ? "#ffffff" : "#110d0c";
                 }
             };
             setInterval(refreshImages, 3000);
