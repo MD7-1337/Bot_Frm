@@ -5,6 +5,10 @@ import sys
 
 import pytest
 
+# The selected phone now uses one viewer, so the old multi-tile UI is retired.
+# Live-frame delivery is covered by test_stitch_ui.py and test_preview_live.py.
+pytestmark = pytest.mark.skip(reason="Retired multi-tile UI; current viewer regressions have replacement tests")
+
 
 @pytest.mark.gui
 @pytest.mark.skipif(os.environ.get("STUDIO_GUI_TESTS") != "1", reason="Requires opt-in desktop/headless Qt integration")

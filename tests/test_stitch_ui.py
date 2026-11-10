@@ -142,3 +142,29 @@ def test_live_selected_frame_skips_hidden_duplicate_and_keeps_latest(monkeypatch
     window._update_live_frames()
     assert window.preview.frame is frames[-1]
     window.close()
+
+
+def test_main_split_and_coordinate_inspector_lifecycle():
+    app = _app()
+    window = StudioWindow(discover=False)
+    window.resize(1600, 900)
+    window.show()
+    app.processEvents()
+    assert not window.shell.sidebar.isVisible()
+    assert not window.shell.project.isVisible()
+    assert all(not window.docks[name].isVisible() for name in ("visual", "recorder"))
+    widths = window.shell.studio_split.sizes()
+    assert len(widths) == 2
+    assert 0.40 <= widths[0] / sum(widths) <= 0.50
+    image = QImage(120, 240, QImage.Format.Format_RGB32)
+    image.fill(0xff203040)
+    inspector = CoordinateInspector(image, "fixture")
+    window.shell.show_coordinate_inspector(inspector)
+    window.resize(1100, 720)
+    app.processEvents()
+    assert inspector.isVisible()
+    window.shell.close_coordinate_inspector()
+    app.processEvents()
+    assert window.preview.isVisible()
+    assert all(not window.docks[name].isVisible() for name in ("visual", "recorder"))
+    window.close()

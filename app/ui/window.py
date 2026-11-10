@@ -55,9 +55,15 @@ class Job(QRunnable):
 
     def run(self):
         try:
-            self.signals.done.emit(self, self.operation(), None)
+            result, failure = self.operation(), None
         except Exception as error:
-            self.signals.done.emit(self, None, str(error))
+            result, failure = None, str(error)
+        try:
+            self.signals.done.emit(self, result, failure)
+        except RuntimeError:
+            # The window can finish closing while an ADB operation exits.
+            # Never emit a second completion through a deleted Qt signal.
+            pass
 
 
 class UnavailableScheduler:

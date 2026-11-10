@@ -157,11 +157,13 @@ class WorkspaceShell(QWidget):
         studio_layout.addWidget(self.welcome)
         self.welcome.hide()
         split = QSplitter()
+        split.setChildrenCollapsible(False)
         split.addWidget(self.documents)
         self.preview_slots["studio"] = self.slot()
         split.addWidget(self.preview_slots["studio"])
-        split.setSizes([700, 680])
+        split.setSizes([450, 550])
         split.setStretchFactor(0, 1)
+        split.setStretchFactor(1, 1)
         self.splitters["studio_horizontal"] = split
         self.studio_split = split
         vertical = QSplitter(Qt.Orientation.Vertical)
@@ -232,7 +234,7 @@ class WorkspaceShell(QWidget):
         self.welcome.hide()
         self.project.refresh()
         for name, splitter in self.splitters.items():
-            saved = window.settings.value("workspace_v2/" + name)
+            saved = window.settings.value(("workspace_v3/" if name == "studio_horizontal" else "workspace_v2/") + name)
             if saved:
                 splitter.restoreState(saved)
         self._responsive_layout()
@@ -296,12 +298,12 @@ class WorkspaceShell(QWidget):
         for nav in self.nav.values():
             nav.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly if collapsed else Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         compact = self.width() < 1250
-        for slot in self.preview_slots.values():
-            slot.setVisible(not compact or self.preview_on_small)
+        for key, slot in self.preview_slots.items():
+            if key != "studio":
+                slot.setVisible(not compact or self.preview_on_small)
         # Dense tool forms and a phone cannot both fit a compact pane. The
         # header toggle shows either the tools or the preview at full width.
-        for key in ("devices", "visual", "recorder"):
-            self.window.docks[key].setVisible(not compact or not self.preview_on_small)
+        self.window.docks["devices"].setVisible(self.current == "devices" and (not compact or not self.preview_on_small))
         self.sidebar.hide()
         self.project.hide()
         self.preview_slots["studio"].show()
@@ -353,12 +355,13 @@ class WorkspaceShell(QWidget):
     def save(self):
         self.window.settings.setValue("last_workspace", self.current)
         for name, splitter in self.splitters.items():
-            self.window.settings.setValue("workspace_v2/" + name, splitter.saveState())
+            namespace = "workspace_v3/" if name == "studio_horizontal" else "workspace_v2/"
+            self.window.settings.setValue(namespace + name, splitter.saveState())
 
     def reset(self):
-        self.splitters["studio_horizontal"].setSizes([700, 680])
+        self.splitters["studio_horizontal"].setSizes([450, 550])
         self.splitters["studio_vertical"].setSizes([680, 130])
-        for key in ("devices", "visual", "recorder"):
+        for key in ("devices",):
             self.splitters[key].setSizes([900, 300])
         self.switch("studio")
 
