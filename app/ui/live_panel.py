@@ -32,6 +32,20 @@ class LivePanel(QWidget):
         self.configure = button("Quality", self._toggle_quality)
         heading.addWidget(self.configure)
         layout.addLayout(heading)
+        # The approved Stitch screen places connection state in the narrow
+        # phone-viewer header, not in the main script toolbar.
+        self.stitch_viewer_header = QWidget()
+        self.stitch_viewer_header.setObjectName("stitchViewerBar")
+        viewer_top = QHBoxLayout(self.stitch_viewer_header)
+        viewer_top.setContentsMargins(10, 5, 10, 5)
+        viewer_top.setSpacing(10)
+        viewer_top.addWidget(label("PHONE PREVIEW", "eyebrow"))
+        self.stitch_viewer_state = label("Connect an Android phone", "muted")
+        self.stitch_viewer_state.setObjectName("stitchViewerStatus")
+        self.stitch_viewer_state.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        viewer_top.addWidget(self.stitch_viewer_state, stretch=1)
+        self.stitch_viewer_header.hide()
+        layout.addWidget(self.stitch_viewer_header)
         self.status = label("Connect and select a phone, then start live video.", "notice")
         self.status.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         layout.addWidget(self.status)
@@ -72,7 +86,6 @@ class LivePanel(QWidget):
         layout.addLayout(controls)
         self.geometry_label = label("Original resolution: awaiting a frame")
         self.geometry_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        layout.addWidget(self.geometry_label)
         # Native Windows font metrics can make a row of Android controls wider
         # than the narrow preview slot. Each action gets the full pane width.
         android = self.android_controls = QGridLayout()
@@ -90,17 +103,32 @@ class LivePanel(QWidget):
         self.tiles_layout = QVBoxLayout()
         contents.addLayout(self.tiles_layout)
         scroll = self.scroll = QScrollArea()
+        scroll.setObjectName("stitchPhoneStage")
         scroll.setWidgetResizable(True)
         scroll.setWidget(content)
-        layout.addWidget(scroll)
+        layout.addWidget(scroll, stretch=1)
+        # Keep the actual Android resolution and orientation string maintained
+        # by StudioWindow in a quiet footer beneath the preview (Stitch layout).
+        self.viewer_footer = QWidget()
+        self.viewer_footer.setObjectName("stitchViewerFooter")
+        footer = QHBoxLayout(self.viewer_footer)
+        footer.setContentsMargins(10, 5, 10, 5)
+        footer.setSpacing(8)
+        self.geometry_label.setObjectName("stitchViewerGeometry")
+        footer.addWidget(self.geometry_label, stretch=1)
+        self.viewer_fit = label("FIT  ·  ASPECT LOCKED", "muted")
+        self.viewer_fit.setObjectName("stitchViewerFit")
+        footer.addWidget(self.viewer_fit)
+        layout.addWidget(self.viewer_footer)
         self.tiles: dict[str, tuple[QGroupBox, PhonePreview, QLabel]] = {}
 
     def set_stitch_mode(self, active: bool):
         """Keep the original stream/gesture widget, with controls in the main bar."""
         for widget in (self.heading_label, self.configure, self.status, self.start_button,
-                       self.stop_button, self.more, self.geometry_label, self.back_button,
+                       self.stop_button, self.more, self.back_button,
                        self.home_button, self.capture_button):
             widget.setVisible(not active)
+        self.stitch_viewer_header.setVisible(active)
         self.quality.hide()
         self.layout().setContentsMargins(0 if active else 10, 0 if active else 10,
                                          0 if active else 10, 0 if active else 10)
@@ -142,3 +170,4 @@ class LivePanel(QWidget):
             label.setText(state)
         if serial == selected_serial:
             self.status.setText(f"{serial} · {state}")
+            self.stitch_viewer_state.setText(state)

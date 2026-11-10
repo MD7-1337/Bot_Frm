@@ -83,6 +83,13 @@ def apply_theme(application, name="dark"):
         QMenu::item:selected {{ background: {theme.selection}; }}
         QWidget#sidebar, QFrame#surface {{ background: {theme.surface}; border: 1px solid {theme.border}; border-radius: 4px; }}
         QWidget#stitchHeader, QWidget#consoleHeader {{ background: {theme.surface}; border-bottom: 1px solid {theme.border}; }}
+        QWidget#stitchViewerBar {{ background: {theme.raised}; border: 1px solid {theme.border}; border-bottom: none; }}
+        QWidget#stitchViewerFooter {{ background: {theme.surface}; border: 1px solid {theme.border}; border-top: none; }}
+        QScrollArea#stitchPhoneStage {{ background: {theme.background}; border: 1px solid {theme.border}; }}
+        QScrollArea#stitchPhoneStage QWidget {{ background: transparent; }}
+        QLabel#stitchViewerStatus {{ color: {theme.muted}; font-size: 11px; }}
+        QLabel#stitchViewerGeometry {{ color: {theme.muted}; font-size: 11px; }}
+        QLabel#stitchViewerFit {{ color: {theme.accent}; font-size: 10px; font-weight: 600; }}
         QLabel#stitchHeading {{ font-family: 'Space Grotesk'; font-size: 13px; font-weight: 600; }}
         QLabel#stitchMetadata {{ color: {theme.muted}; font-family: 'JetBrains Mono'; font-size: 11px; }}
         QLabel#brand {{ font-size: 18px; font-weight: 700; color: {theme.accent}; }}

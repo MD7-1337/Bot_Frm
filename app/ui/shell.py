@@ -178,7 +178,9 @@ class WorkspaceShell(QWidget):
         console_layout.addWidget(self.console_toggle)
         console_layout.addWidget(self.execution_slots["studio"], stretch=1)
         vertical.addWidget(console)
-        vertical.setSizes([680, 130])
+        # Match the compact Stitch console on first launch; users can drag
+        # the splitter to enlarge it when reviewing long script output.
+        vertical.setSizes([740, 90])
         vertical.setStretchFactor(0, 1)
         self.splitters["studio_vertical"] = vertical
         studio_layout.addWidget(vertical, stretch=1)
@@ -234,7 +236,7 @@ class WorkspaceShell(QWidget):
         self.welcome.hide()
         self.project.refresh()
         for name, splitter in self.splitters.items():
-            saved = window.settings.value(("workspace_v3/" if name == "studio_horizontal" else "workspace_v2/") + name)
+            saved = window.settings.value(("workspace_v3/" if name in ("studio_horizontal", "studio_vertical") else "workspace_v2/") + name)
             if saved:
                 splitter.restoreState(saved)
         self._responsive_layout()
@@ -358,12 +360,12 @@ class WorkspaceShell(QWidget):
     def save(self):
         self.window.settings.setValue("last_workspace", self.current)
         for name, splitter in self.splitters.items():
-            namespace = "workspace_v3/" if name == "studio_horizontal" else "workspace_v2/"
+            namespace = "workspace_v3/" if name in ("studio_horizontal", "studio_vertical") else "workspace_v2/"
             self.window.settings.setValue(namespace + name, splitter.saveState())
 
     def reset(self):
         self.splitters["studio_horizontal"].setSizes([450, 550])
-        self.splitters["studio_vertical"].setSizes([680, 130])
+        self.splitters["studio_vertical"].setSizes([740, 90])
         # The removed Visual Tools and Recorder pages no longer own splitters.
         # Reset only the layouts actually installed in this UI.
         self.splitters["devices"].setSizes([900, 300])
